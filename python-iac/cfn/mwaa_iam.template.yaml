@@ -1,0 +1,404 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  MWWAOperationalBucketName:
+    Type: String
+    Description: The S3 bucket where your source code is stored.
+
+  Region:
+    Type: String
+    Description: Stack Region
+
+  MWAAStackName:
+    Type: String
+
+  RedshiftClusterEndpoint:
+    Type: String
+
+  RedshiftReadOnlyUser:
+    Type: String
+
+  RedshiftMediaUser:
+    Type: String
+
+  RedshiftDataScienceUser:
+    Type: String
+
+  RedshiftDBEngUser:
+    Type: String
+
+  RedshiftDeploymentAutomationUser:
+    Type: String
+
+  MediaRedshiftSpectrumIAMRole:
+    Type: String
+
+  RedshiftCopyUnloadIAMRole:
+    Type: String
+
+  RedshiftSpectrumReptrakIAMRole:
+    Type: String
+
+  Environment:
+    Type: String
+
+Resources:
+  MWAADBEngOperationalUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: !Sub 'mwaa-dbeng-${AWS::StackName}'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDMSRedshiftS3Role' # COPY UNLOAD REDSHIFT START
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess' # COPY UNLOAD REDSHIFT END
+      Policies:
+        - PolicyName: !Sub 'mwaa-dbeng-bucket-access-${AWS::StackName}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
+                  - "s3:GetBucket*"
+                  - "s3:List*"
+                Resource:
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/dbeng
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/dbeng/*
+                  - !Sub arn:aws:s3:::dbeng*
+                  - !Sub arn:aws:s3:::dbeng*/*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetResourcePolicy
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:ListSecretVersionIds
+                  - secretsmanager:ListSecrets
+                Resource:
+                  - !Sub arn:aws:secretsmanager:${Region}:*:secret:dbeng*
+
+
+  MWAAMediaOperationalUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: !Sub 'mwaa-media-${AWS::StackName}'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
+      Policies:
+        - PolicyName: !Sub "mwaa-media-bucket-access-${AWS::StackName}"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
+                  - "s3:GetBucket*"
+                  - "s3:List*"
+                Resource:
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/media
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/media/*
+                  - !Sub arn:aws:s3:::media*
+                  - !Sub arn:aws:s3:::media*/*
+              - Effect: Allow # AmazonSageMaker-ExecutionPolicy-20191216T222217 Policies Start
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource: "*" # AmazonSageMaker-ExecutionPolicy-20191216T222217 Policies End
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetResourcePolicy
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:ListSecretVersionIds
+                  - secretsmanager:ListSecrets
+                Resource:
+                  - !Sub arn:aws:secretsmanager:${Region}:*:secret:media*
+
+  MWAADataScienceOperationalUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: !Sub 'mwaa-ds-${AWS::StackName}'
+      Policies:
+        - PolicyName: !Sub "mwaa-ds-bucket-access-${AWS::StackName}"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
+                  - "s3:GetBucket*"
+                  - "s3:List*"
+                Resource:
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/data-science
+                  - !Sub arn:aws:s3:::${MWWAOperationalBucketName}/data-science/*
+                  - !Sub arn:aws:s3:::datascience*
+                  - !Sub arn:aws:s3:::datascience*/*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetResourcePolicy
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:ListSecretVersionIds
+                  - secretsmanager:ListSecrets
+                Resource:
+                  - !Sub arn:aws:secretsmanager:${Region}:*:secret:datascience*
+                  - !Sub arn:aws:secretsmanager:${Region}:*:secret:ds*
+                  - !Sub arn:aws:secretsmanager:${Region}:*:secret:data-science*
+
+  MWAADBEngOperationalUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref MWAADBEngOperationalUser
+
+  MWAAMediaOperationalUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref MWAAMediaOperationalUser
+
+  MWAADataScienceOperationalUserOperationalUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref MWAADataScienceOperationalUser
+
+  MWAAVariableOperationaBucketName:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/operational-bucket'
+      SecretString: !Ref MWWAOperationalBucketName
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDBEngOperationalFolder:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/operational-bucket-dbeng-folder'
+      SecretString: dbeng
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableMediaOperationalFolder:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/operational-bucket-media-folder'
+      SecretString: media
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDataScenceOperationalFolder:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/operational-bucket-data-science-folder'
+      SecretString: data-science
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDBEngOperationalUserAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-dbeng-access-key'
+      SecretString: !Ref MWAADBEngOperationalUserAccessKey
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDBEngOperationalUserAccessKeySecretAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-dbeng-access-key-secret'
+      SecretString: !GetAtt [ MWAADBEngOperationalUserAccessKey, SecretAccessKey ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableMediaOperationalUserAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-media-access-key'
+      SecretString: !Ref MWAAMediaOperationalUserAccessKey
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableMediaOperationalUserAccessKeySecretAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-media-access-key-secret'
+      SecretString: !GetAtt [ MWAAMediaOperationalUserAccessKey, SecretAccessKey ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDataScienceOperationalUserOperationalUserAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-data-science-access-key'
+      SecretString: !Ref MWAADataScienceOperationalUserOperationalUserAccessKey
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableDataScienceOperationalUserOperationalUserAccessKeySecretAccessKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-user-data-science-access-key-secret'
+      SecretString: !GetAtt [ MWAADataScienceOperationalUserOperationalUserAccessKey, SecretAccessKey ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-user
+
+  MWAAVariableMediaRedshiftSpectrumIAMRole:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-redshift-media-spectrum-iam-role'
+      SecretString: !Ref MediaRedshiftSpectrumIAMRole
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-service-role
+        - Key: service
+          Value: redshift
+
+  MWAAVariableRedshiftCopyUnloadIAMRole:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-redshift-copy-unload-iam-role'
+      SecretString: !Ref RedshiftCopyUnloadIAMRole
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-service-role
+        - Key: service
+          Value: redshift
+
+  MWAAVariableRedshiftSpectrumReptrakIAMRole:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/secret-redshift-spectrum-reptrak-iam-role'
+      SecretString: !Ref RedshiftSpectrumReptrakIAMRole
+      Tags:
+        - Key: secret-type
+          Value: airflow-operational-service-role
+        - Key: service
+          Value: redshift
+
+  MWAAReadOnlyUserConnectionRedshift:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/connection/redshift-dev-read-only-user'
+      SecretString: !Join [
+          '',
+        [
+            'postgres://',
+            '{{resolve:secretsmanager:', !Ref RedshiftReadOnlyUser, ':SecretString:username}}',
+            ':',
+            '{{resolve:secretsmanager:', !Ref RedshiftReadOnlyUser, ':SecretString:password}}',
+            '@',
+            !Ref RedshiftClusterEndpoint,
+            '/dev?sslmode=prefer'
+        ],
+      ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-connection-string
+
+  MWAAMediaUserConnectionRedshift:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/connection/redshift-dev-media-user'
+      SecretString: !Join [
+          '',
+        [
+            'postgres://',
+            '{{resolve:secretsmanager:', !Ref RedshiftMediaUser, ':SecretString:username}}',
+            ':',
+            '{{resolve:secretsmanager:', !Ref RedshiftMediaUser, ':SecretString:password}}',
+            '@',
+            !Ref RedshiftClusterEndpoint,
+            '/dev?sslmode=prefer'
+        ],
+      ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-connection-string
+
+  MWAADataScienceUserConnectionRedshift:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/connection/redshift-dev-datascience-user'
+      SecretString: !Join [
+          '',
+        [
+            'postgres://',
+            '{{resolve:secretsmanager:', !Ref RedshiftDataScienceUser, ':SecretString:username}}',
+            ':',
+            '{{resolve:secretsmanager:', !Ref RedshiftDataScienceUser, ':SecretString:password}}',
+            '@',
+            !Ref RedshiftClusterEndpoint,
+            '/dev?sslmode=prefer'
+        ],
+      ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-connection-string
+
+  MWAADBEngUserUserConnectionRedshift:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/connection/redshift-dev-dbeng-user'
+      SecretString: !Join [
+          '',
+        [
+            'postgres://',
+            '{{resolve:secretsmanager:', !Ref RedshiftDBEngUser, ':SecretString:username}}',
+            ':',
+            '{{resolve:secretsmanager:', !Ref RedshiftDBEngUser, ':SecretString:password}}',
+            '@',
+            !Ref RedshiftClusterEndpoint,
+            '/dev?sslmode=prefer'
+        ],
+      ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-connection-string
+
+  MWAADeploymentAutomationUserConnectionRedshift:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/connection/redshift-dev-deployment-automation-user'
+      SecretString: !Join [
+          '',
+        [
+            'postgres://',
+            '{{resolve:secretsmanager:', !Ref RedshiftDeploymentAutomationUser, ':SecretString:username}}',
+            ':',
+            '{{resolve:secretsmanager:', !Ref RedshiftDeploymentAutomationUser, ':SecretString:password}}',
+            '@',
+            !Ref RedshiftClusterEndpoint,
+            '/dev?sslmode=prefer'
+        ],
+      ]
+      Tags:
+        - Key: secret-type
+          Value: airflow-connection-string
+
+  MWAAEnvironment:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'airflow/${MWAAStackName}/variable/environment'
+      SecretString: !Ref Environment
+      Tags:
+        - Key: secret-type
+          Value: airflow-variable
+
+Outputs:
+  MWWAOperationalBucketName:
+    Value: !Ref MWWAOperationalBucketName

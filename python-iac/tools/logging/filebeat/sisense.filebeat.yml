@@ -1,0 +1,26 @@
+filebeat.config:
+  modules:
+    path: ${path.config}/modules.d/*.yml
+    reload.enabled: false
+
+# path based on mounted volume
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /sisense-logs/application-logs/analytical-engine/*.log
+      - /sisense-logs/application-logs/api-gateway/*.log
+      - /sisense-logs/application-logs/blox/*.log
+      - /sisense-logs/application-logs/configuration-service/*.log
+      - /sisense-logs/application-logs/ecm/*.log
+      - /sisense-logs/application-logs/ECMLogsPersistenceService/*.log
+      - /sisense-logs/application-logs/galaxy/*.log
+      - /sisense-logs/application-logs/identity-service/*.log
+      - /sisense-logs/application-logs/jobs-service/*.log
+      - /sisense-logs/application-logs/orchestrator-service/*.log
+      - /sisense-logs/application-logs/plugins-service/*.log
+      - /sisense-logs/application-logs/sisense-storage/*.log
+      - /sisense-logs/application-logs/usage-service/*.log
+
+output.logstash:
+  hosts: ['${LOGSTASH_HOST}:${LOGSTASH_PORT}']

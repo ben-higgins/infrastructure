@@ -1,0 +1,4 @@
+## eks
+ClusterMinSize: 3
+ClusterMaxSize: 6
+ClusterDesiredSize: 3

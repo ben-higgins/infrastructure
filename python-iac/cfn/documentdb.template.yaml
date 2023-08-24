@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Template deploys DocumentDB
+Parameters:
+  Name:
+    Type: String
+  EnvType:
+    Type: String
+  SubnetGroup:
+    Type: String
+  DBPort:
+    Type: String
+    Default: 27017
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  VpcCIDR:
+    Type: String
+  VPNCidr:
+    Type: String
+  DBInstanceClass:
+    Type: String
+    Default: db.r5.large
+Resources:
+  DocDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - DocDB Security Group" ] ]
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: 'docdb access'
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VPNCidr
+          Description: 'vpn endpoint vpc cidr'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-securityGroup'
+
+  DocDBInstanceRotationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'This is the secret for my RDS instance'
+      Name: !Sub ${Name}/documentdb-cluster
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "db_admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  SecretDocDBInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DocDBInstanceRotationSecret
+      TargetId: !Ref DocDBCluster
+      TargetType: AWS::DocDB::DBCluster
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds: !Split [ ',', !Ref SubnetGroup ]
+
+  DocDBCluster:
+    Type: "AWS::DocDB::DBCluster"
+    DependsOn:
+      - DBSubnetGroup
+      - DocDBSecurityGroup
+    Properties:
+      BackupRetentionPeriod : 30
+      DBClusterIdentifier : !Sub ${Name}-docdb-cluster
+      DBSubnetGroupName : !Ref DBSubnetGroup
+      MasterUsername : !Join ['', ['{{resolve:secretsmanager:', !Ref DocDBInstanceRotationSecret, ':SecretString:username}}' ]]
+      MasterUserPassword : !Join ['', ['{{resolve:secretsmanager:', !Ref DocDBInstanceRotationSecret, ':SecretString:password}}' ]]
+      Port : !Ref DBPort
+      PreferredBackupWindow : "01:00-03:00"
+      PreferredMaintenanceWindow : "sat:04:00-sat:06:00"
+      VpcSecurityGroupIds:
+        - !Ref DocDBSecurityGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvType
+
+  DocDBInstance:
+    Type: AWS::DocDB::DBInstance
+    DependsOn: DocDBCluster
+    Properties:
+      AutoMinorVersionUpgrade: true
+      DBClusterIdentifier: !Sub ${Name}-docdb-cluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub ${Name}-instance
+      PreferredMaintenanceWindow: "sat:04:00-sat:06:00"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvType
+
+Outputs:
+  DocumentDBClusterId:
+    Value: !GetAtt DocDBCluster.ClusterResourceId
+  DocumentDBEndpoint:
+    Value: !GetAtt DocDBCluster.Endpoint
+  DocumentDBPort:
+    Value: !GetAtt DocDBCluster.Port

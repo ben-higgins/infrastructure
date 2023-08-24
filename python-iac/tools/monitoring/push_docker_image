@@ -1,0 +1,10 @@
+
+$(aws ecr get-login --no-include-email --region us-east-1)
+
+docker build -t airfox-api-monitor .
+
+docker tag airfox-api-monitor:latest 796026647601.dkr.ecr.us-east-1.amazonaws.com/airfox-api-monitor:latest
+
+docker push 796026647601.dkr.ecr.us-east-1.amazonaws.com/airfox-api-monitor:latest
+
+

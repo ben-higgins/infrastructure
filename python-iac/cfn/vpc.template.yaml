@@ -1,0 +1,458 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Basic VPC
+Mappings:
+  ARNNamespace:
+    us-east-1:
+      Partition: aws
+    us-east-2:
+      Partition: aws
+    us-west-2:
+      Partition: aws
+    us-west-1:
+      Partition: aws
+    eu-west-1:
+      Partition: aws
+    eu-central-1:
+      Partition: aws
+    ap-southeast-1:
+      Partition: aws
+    ap-northeast-1:
+      Partition: aws
+    ap-southeast-2:
+      Partition: aws
+    sa-east-1:
+      Partition: aws
+    us-gov-west-1:
+      Partition: aws-us-gov
+  S3Region:
+    us-east-1:
+      Region: us-east-1
+    us-east-2:
+      Region: us-east-2
+    us-west-2:
+      Region: us-east-1
+    us-west-1:
+      Region: us-east-1
+    eu-west-1:
+      Region: us-east-1
+    eu-central-1:
+      Region: us-east-1
+    ap-southeast-1:
+      Region: us-east-1
+    ap-northeast-1:
+      Region: us-east-1
+    ap-southeast-2:
+      Region: us-east-1
+    sa-east-1:
+      Region: us-east-1
+    us-gov-west-1:
+      Region: us-gov-west-1
+Parameters:
+  Name:
+    Type: String
+    Description: Name references build template for automation
+  Region:
+    Type: String
+  Bucket:
+    Type: String
+    Default: reptrak-deployment
+  DeployBucketPrefix:
+    Type: String
+    Default: ""
+  EnableVPCTransit:
+    Type: String
+    Default: false
+    AllowedValues: ['false', 'true']
+  TransitGatewayId:
+    Type: String
+  VpcCIDR:
+    Type: String
+    Default: 10.10.0.0/21
+  PublicSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 subnets
+    Default: 10.10.0.0/24,10.10.1.0/24,10.10.2.0/24
+  PrivateSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 Subnets
+    Default: 10.10.3.0/24,10.10.4.0/24,10.10.5.0/24
+  NumberOfAZs:
+    Type: Number
+    AllowedValues: ["2","3"]
+  EnvType:
+    Type: String
+  SSHKey:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: devops
+
+Conditions:
+  AttachTransit: !Equals [ !Ref EnableVPCTransit, true]
+  BuildAz2: !Not [ !Equals [ !Ref NumberOfAZs, 1 ] ]
+  BuildAz3: !Equals [ !Ref NumberOfAZs, 3 ]
+  AttachRoute2: !And
+    - !Condition BuildAz2
+    - !Condition AttachTransit
+  AttachRoute3: !And
+    - !Condition BuildAz3
+    - !Condition AttachTransit
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value:
+            Ref: AWS::StackName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: Vpc
+      InternetGatewayId:
+        Ref: InternetGateway
+
+  PubSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      MapPublicIpOnLaunch: true
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [0, !Ref PublicSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Public Subnet (AZ1)
+
+  PubSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Condition: BuildAz2
+    Properties:
+      MapPublicIpOnLaunch: true
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [1, !Ref PublicSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '1'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Public Subnet (AZ2)
+
+  PubSubnetAz3:
+    Type: AWS::EC2::Subnet
+    Condition: BuildAz3
+    Properties:
+      MapPublicIpOnLaunch: true
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [2, !Ref PublicSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '2'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Public Subnet (AZ3)
+
+  PrivSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [0, !Ref PrivateSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Subnet (AZ1)
+
+  PrivSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Condition: BuildAz2
+    Properties:
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [1, !Ref PrivateSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '1'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Subnet (AZ2)
+
+  PrivSubnetAz3:
+    Type: AWS::EC2::Subnet
+    Condition: BuildAz3
+    Properties:
+      VpcId:
+        Ref: Vpc
+      CidrBlock: !Select [2, !Ref PrivateSubnets]
+      AvailabilityZone:
+        Fn::Select:
+          - '2'
+          - Fn::GetAZs:
+              Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Subnet (AZ3)
+
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PubSubnetAz1
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Public Routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  TGWPublicRoute:
+    Condition: AttachTransit
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGatewayId
+    DependsOn: TGWAttachment
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnetAz1
+
+  PublicSubnet2RouteTableAssociation:
+    Condition: BuildAz2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnetAz2
+
+  PublicSubnet3RouteTableAssociation:
+    Condition: BuildAz3
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnetAz3
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Routes (AZ1)
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  TGWPrivateRoute1:
+    Condition: AttachTransit
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGatewayId
+    DependsOn: TGWAttachment
+
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivSubnetAz1
+
+  PrivateRouteTable2:
+    Condition: BuildAz2
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Routes (AZ2)
+
+  DefaultPrivateRoute2:
+    Condition: BuildAz2
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  TGWPrivateRoute2:
+    Condition: AttachRoute2
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGatewayId
+    DependsOn: TGWAttachment
+
+
+  PrivateSubnet2RouteTableAssociation:
+    Condition: BuildAz2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivSubnetAz2
+
+  PrivateRouteTable3:
+    Condition: BuildAz3
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Routes (AZ3)
+
+  DefaultPrivateRoute3:
+    Condition: BuildAz3
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  TGWPrivateRoute3:
+    Condition: AttachRoute3
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGatewayId
+    DependsOn: TGWAttachment
+
+
+  PrivateSubnet3RouteTableAssociation:
+    Condition: BuildAz3
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      SubnetId: !Ref PrivSubnetAz3
+
+  NoIngressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "no-ingress-sg"
+      GroupDescription: "Security group with no ingress rule"
+      VpcId: !Ref Vpc
+
+  TGWAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Condition: AttachTransit
+    Properties:
+      SubnetIds:
+        - !Ref PrivSubnetAz1
+        - !If [BuildAz2, !Ref PrivSubnetAz2, !Ref AWS::NoValue]
+        - !If [BuildAz3, !Ref PrivSubnetAz3, !Ref AWS::NoValue]
+      TransitGatewayId: !Ref TransitGatewayId
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Ref Vpc
+
+Outputs:
+  VpcID:
+    Description: Created VPC ID
+    Value:
+      Ref: Vpc
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcID
+  PublicSubnetAz1:
+    Description: Public Subnet AZ1 created in VPC
+    Value:
+      Ref: PubSubnetAz1
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetAz1
+  PublicSubnetAz2:
+    Condition: BuildAz2
+    Description: Public Subnet AZ2 created in VPC
+    Value:
+      Ref: PubSubnetAz2
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetAz2
+  PublicSubnetAz3:
+    Condition: BuildAz3
+    Description: Public Subnet AZ2 created in VPC
+    Value:
+      Ref: PubSubnetAz3
+  PrivateSubnetAz1:
+    Description: Private Subnet AZ1 created in VPC
+    Value:
+      Ref: PrivSubnetAz1
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetAz1
+  PrivateSubnetAz2:
+    Condition: BuildAz2
+    Description: Private Subnet AZ2 created in VPC
+    Value:
+      Ref: PrivSubnetAz2
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetAz2
+  PrivateSubnetAz3:
+    Condition: BuildAz3
+    Description: Private Subnet AZ2 created in VPC
+    Value:
+      Ref: PrivSubnetAz3
+  PublicSubnetGroup:
+    Value: !Join [",", [!Ref PubSubnetAz1, !If [BuildAz2, !Ref PubSubnetAz2, !Ref AWS::NoValue], !If [BuildAz3, !Ref PubSubnetAz3, !Ref AWS::NoValue]]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetGroup
+  PrivateSubnetGroup:
+    Value: !Join [",", [!Ref PrivSubnetAz1, !If [BuildAz2, !Ref PrivSubnetAz2, !Ref AWS::NoValue], !If [BuildAz3, !Ref PrivSubnetAz3, !Ref AWS::NoValue]]]
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetGroup
+  VpcCidr:
+    Description: VPC network block
+    Value: !Ref VpcCIDR
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcCidr
+  StackName:
+    Description: Output Stack Name
+    Value: !Ref AWS::StackName
+  Region:
+    Description: Stack location
+    Value: !Ref AWS::Region

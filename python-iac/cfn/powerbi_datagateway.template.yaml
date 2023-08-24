@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy PowerBI Data Gateway into a management VPC
+Parameters:
+  Name:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: String
+  PowerBIInstanceType:
+    Type: String
+    Default: m3.medium
+  EnvType:
+    Type: String
+  VolumeSize:
+    Type: Number
+    Default: 50
+  VPNCidr:
+    Type: String
+  SSHKey:
+    Type: String
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      "AMI": "ami-00de7f60a006dd768"
+    us-west-1:
+      "AMI": "ami-0782eaff65f13ad4e"
+    eu-west-1:
+      "AMI": "ami-03498572c21a9e8af"
+    eu-central-1:
+      "AMI": "ami-01eeafe5033676a15"
+    ap-southeast-2:
+      "AMI": "ami-047542a8bbdce6b65"
+    ap-northeast-2:
+      "AMI": "ami-0b9e7317d3436eed1"
+
+Resources:
+  Gatewayports:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow vpn access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: !Ref VPNCidr
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref VPNCidr
+
+  InstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+      Path: /
+
+  GatewayRoleProfile:
+    Type: AWS::IAM::InstanceProfile
+    DependsOn: InstanceRole
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref InstanceRole
+      InstanceProfileName:
+        !Join
+        - '_'
+        - - 'PowerBIDataGateway'
+          - !Ref AWS::StackName
+
+  PowerBIDataGateway:
+    DependsOn: GatewayRoleProfile
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref GatewayRoleProfile
+      ImageId:
+        Fn::FindInMap:
+          - "RegionMap"
+          - Ref: "AWS::Region"
+          - "AMI"
+      KeyName: !Ref SSHKey
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref Gatewayports
+          SubnetId: !Ref SubnetId
+      InstanceType: !Ref PowerBIInstanceType
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}
+        - Key: Environment
+          Value: !Ref Name
+      UserData:
+        Fn::Base64: !Sub |
+          <powershell>
+          Get-ComputerInfo
+          </powershell>
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref PowerBIDataGateway
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-gateway
+        - Key: Environment
+          Value: !Ref EnvType
+
+Outputs:
+
+  PowerBIGatewayInternalIP:
+    Description: Internal IP
+    Value: !GetAtt PowerBIDataGateway.PrivateIp
+
+  PowerBIGatewayPublicIP:
+    Description: Public IP
+    Value: !GetAtt PowerBIDataGateway.PublicIp

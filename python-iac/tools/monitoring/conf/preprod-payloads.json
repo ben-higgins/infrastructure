@@ -1,0 +1,137 @@
+{
+  "sample-api-name" : {
+    "protocol": "https or http",
+    "host": "sample-host.fubar.com",
+    "path": "/api/v1/someapiendpont",
+    "uri": "something=value",
+    "method": "POST or GET",
+    "vendor": "airfox, viavarejo, others",
+    "payload": {
+      "credentials": {
+        "token": "string",
+        "user_id": "string",
+        "pin": "string"
+      },
+      "device_id": "string",
+      "phone_number": "string",
+      "simcard_id": "string"
+    }
+  },
+  "viavarejostatus": {
+    "protocol": "https",
+    "host": "cdccorp.viavarejo.com.br",
+    "path": "/actuator/health",
+    "uri": "",
+    "method": "GET",
+    "vendor": "viavarejo",
+    "payload": {}
+  },
+  "viavarejocontractos": {
+    "protocol": "https",
+    "host": "cdccorp.viavarejo.com.br",
+    "path": "/contratos/08471159767",
+    "uri": "",
+    "method": "GET",
+    "vendor": "viavarejo",
+    "payload": {}
+  },
+  "viavarejocontigocontracto": {
+    "protocol": "https",
+    "host": "cdccorp.viavarejo.com.br",
+    "path": "/contratos/21097200183769/08471159767",
+    "uri": "",
+    "method": "GET",
+    "vendor": "viavarejo",
+    "payload": {}
+  },
+  "noproxyviavarejocontigocontracto": {
+    "protocol": "https",
+    "host": "cdccorp.viavarejo.com.br",
+    "path": "/contratos/21097200183769/08471159767",
+    "uri": "",
+    "method": "GET",
+    "vendor": "viavarejo",
+    "payload": {}
+  },
+  "sfviavarejostatus": {
+    "protocol": "https",
+    "host": "sf.viavarejo.com.br",
+    "path": "/actuator/health",
+    "uri": "",
+    "method": "GET",
+    "vendor": "viavarejo",
+    "payload": {"codigo": "12312312312"}
+  },
+  "useraccount": {
+    "protocol": "https",
+    "path": "/api/account/v1/account/",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "depositlocations": {
+    "protocol": "https",
+    "path": "/api/deposit/v1/places",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "payrecharge": {
+    "protocol": "https",
+    "path": "/api/pay/v1/transport-recharge",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "cdcdashboard": {
+    "protocol": "https",
+    "path": "/api/v1/dashboard/cdc/assigned/*str*",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "cdcretrieveall": {
+    "protocol": "https",
+    "path": "/api/cdc/v1/retrieve/all",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "coordinator": {
+    "protocol": "https",
+    "host": "proxy-prod-airfox-coordinator.mgensuite.com",
+    "path": "/status",
+    "uri": "",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "boletostatus": {
+    "protocol": "https",
+    "host": "preprod-airfox-api-gateway.mgensuite.com",
+    "path": "/api/v1/boleto/status",
+    "uri": "?boletos=12312312312",
+    "method": "GET",
+    "vendor": "airfox",
+    "payload": {}
+  },
+  "qiwiboleto": {
+    "protocol": "http",
+    "host": "54.81.112.12:30242",
+    "path": "/qiwi/boleto/consulta/1774/true/83620000000352000481004006534883100165621377/3520",
+    "uri": "",
+    "method": "GET",
+    "vendor": "qiwi",
+    "payload": {}
+  }
+}

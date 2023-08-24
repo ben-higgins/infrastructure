@@ -1,0 +1,10 @@
+## eks
+ClusterMinSize: 1
+ClusterDesiredSize: 2
+ClusterMaxSize: 3
+ClusterSpotMinSize: 0
+ClusterSpotDesiredSize: 0
+ClusterSpotMaxSize: 3
+ClusterSpotGpuMinSize: 0
+ClusterSpotGpuDesiredSize: 1
+ClusterSpotGpuMaxSize: 2

@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        job: {{ .Values.serviceName }}
+    spec:
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          env:
+            - name: REGION
+              value: {{ .Values.region }}
+            - name: ENVTYPE
+              value: {{ .Values.envType }}
+            - name: ACTION
+              value: {{ .Values.job.action }}
+      restartPolicy: Never
+
+
+

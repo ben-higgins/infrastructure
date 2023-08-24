@@ -1,0 +1,12 @@
+#!/bin/bash
+
+docker build -t bhspecialty/berxi-build ./berxi-build
+# tag based on the version of alpine - moving away from using :latest since a single push can effect all builds incl prod
+docker tag bhspecialty/berxi-build bhspecialty/berxi-build:3.11
+docker push bhspecialty/berxi-build:3.11
+
+docker build -t bhspecialty/aws-cli ./aws-cli
+docker push bhspecialty/aws-cli
+
+docker build -t bhspecialty/node-hugo:8.15 ./node-hugo
+docker push bhspecialty/node-hugo:8.15

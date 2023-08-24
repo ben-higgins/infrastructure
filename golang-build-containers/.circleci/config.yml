@@ -1,0 +1,40 @@
+version: 2.1
+
+parameters:
+  py-version:
+    type: string
+    default: "3.8.16"
+  image_tag:
+    type: string
+    default: "1.0"
+
+jobs:
+  python3-8:
+    environment:
+      IMAGE_TAG: bhspecialty/devops-builder:<< pipeline.parameters.image_tag >>
+    docker:
+      - image: docker:stable
+    steps:
+      - checkout
+      - setup_remote_docker
+      
+      # - run:
+      #     name: Build and push image
+      #     command: |
+      #       docker build -f ./python3.8/Dockerfile -t $IMAGE_TAG ./python3.8/.
+      #       echo "${DOCKER_PASS}" | docker login --username "${DOCKER_USER}" --password-stdin
+      #       docker push $IMAGE_TAG
+
+      - run:
+         name: Build and push golang image
+         command: |
+           docker build -f ./golang1.18/Dockerfile -t $IMAGE_TAG ./golang1.18/.
+           echo "${DOCKER_PASS}" | docker login --username "${DOCKER_USER}" --password-stdin
+           docker push $IMAGE_TAG
+
+workflows:
+  container-build:
+    jobs:
+      - python3-8:
+          context:
+            - default

@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-{{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      ops: ops-{{ .Values.serviceName }}
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        ops: ops-{{ .Values.serviceName }}
+    spec:
+      serviceAccountName: node-naming
+      containers:
+        - name: ops-{{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          env:
+            - name: ENVTYPE
+              value: {{ .Values.envType }}
+            - name: REGION
+              value: {{ .Values.region }}

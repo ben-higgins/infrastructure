@@ -1,0 +1,449 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name (main/staging/test or some other unique id)
+    Type: String
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+Resources:
+  ##########################################################################
+  # Application
+  ##########################################################################
+  YellowfinApplicationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          yellowfin-application-queue,
+          !Sub "${Env}-yellowfin-application-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinApplicationQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinApplicationQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinApplicationQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinApplicationQueue.Arn
+
+  YellowfinApplicationSubmissionCreatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-created"
+
+  YellowfinApplicationSubmissionUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-updated"
+
+  YellowfinApplicationSubmissionLimitSelectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-limit-selected"
+
+  YellowfinApplicationSubmissionDeductibleSelectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-deductible-selected"
+
+  YellowfinApplicationSubmissionCoverageUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-coverage-updated"
+
+  YellowfinApplicationReferralCreatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-created"
+
+  YellowfinApplicationReferralPendingReviewSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-pending-review"
+
+  YellowfinApplicationReferralRejectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-rejected"
+
+  YellowfinApplicationReferralAbandonedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-abandoned"
+
+  YellowfinApplicationReferralApprovedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-approved"
+
+  YellowfinApplicationReferralClosedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-closed"
+
+  YellowfinApplicationQuoteCreatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-quote-created"
+
+  YellowfinApplicationQuoteUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinApplicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-quote-updated"
+
+##########################################################################
+## referral management
+##########################################################################
+  YellowfinReferralQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          yellowfin-referral-queue,
+          !Sub "${Env}-yellowfin-referral-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinReferralQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinReferralQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinReferralQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinReferralQueue.Arn
+
+  YellowfinReferralTriggerSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinReferralQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-trigger"
+
+  YellowfinSubmissionContactProvidedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinReferralQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-contact-provided"
+
+  YellowfinSubmissionAbandonedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinReferralQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-abandoned"
+
+  ##########################################################################
+  # quote
+  ##########################################################################
+  YellowfinQuoteQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [Prod, yellowfin-quote-queue, !Sub "${Env}-yellowfin-quote-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinQuoteQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinQuoteQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinQuoteQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinQuoteQueue.Arn
+
+  YellowfinQuoteSubmissionUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinQuoteQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-updated"
+
+  YellowfinQuoteSubmissionLimitSelectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinQuoteQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-limit-selected"
+
+  YellowfinQuoteSubmissionDeductibleSelectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinQuoteQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-deductible-selected"
+
+  YellowfinQuoteSubmissionCoverageUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinQuoteQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-coverage-updated"
+  ##########################################################################
+  # submission coverages
+  ##########################################################################
+  YellowfinSubmissionCoverageQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          yellowfin-submission-coverages-queue,
+          !Sub "${Env}-yellowfin-submission-coverages-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinSubmissionCoverageQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinSubmissionCoverageQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinSubmissionCoverageQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinSubmissionCoverageQueue.Arn
+
+  YellowfinSubmissionCoverageSubmissionUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinSubmissionCoverageQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-updated"
+
+##########################################################################
+  # submission limits
+  ##########################################################################
+  YellowfinSubmissionLimitsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          yellowfin-submission-limits-queue,
+          !Sub "${Env}-yellowfin-submission-limits-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinSubmissionLimitsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinSubmissionLimitsQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinSubmissionLimitsQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinSubmissionLimitsQueue.Arn
+
+  YellowfinSubmissionlimitsSubmissionUpdatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinSubmissionLimitsQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-submission-updated"
+
+  ##########################################################################
+  # submission
+  ##########################################################################
+  YellowfinSubmissionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          yellowfin-submission-queue,
+          !Sub "${Env}-yellowfin-submission-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue: !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  YellowfinSubmissionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref YellowfinSubmissionQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: YellowfinSubmissionQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt YellowfinSubmissionQueue.Arn
+
+  YellowfinSubmissionReferralApprovedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinSubmissionQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-approved"
+
+  YellowfinSubmissionReferralRejectedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinSubmissionQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-rejected"
+
+  YellowfinSubmissionReferralClosedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt YellowfinSubmissionQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-referral-closed"

@@ -1,0 +1,117 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template to create Amazon TransitGateway'
+
+Parameters:
+  AutoAcceptSharedAttachments:
+    Type: String
+    Default: 'enable'
+    Description: Enable or disable automatic acceptance of attachment requests
+    AllowedValues:
+      - 'enable'
+      - 'disable'
+  DefaultRouteTableAssociation:
+    Type: String
+    Default: 'enable'
+    Description: Enable or disable automatic association with the default association route table
+    AllowedValues:
+      - 'enable'
+      - 'disable'
+  DefaultRouteTablePropagation:
+    Type: String
+    Default: 'enable'
+    Description: Enable or disable automatic propagation of routes to the default propagation route table
+    AllowedValues:
+      - 'enable'
+      - 'disable'
+  DnsSupport:
+    Type: String
+    Default: 'enable'
+    Description: Enable or disable DNS support
+    AllowedValues:
+      - 'enable'
+      - 'disable'
+  VpnEcmpSupport:
+    Type: String
+    Default: 'enable'
+    Description: Enable or disable Equal Cost Multipath Protocol support
+    AllowedValues:
+      - 'enable'
+      - 'disable'
+  AllowExternalPrincipals:
+    Type: String
+    Default: 'true'
+    Description: Indicates whether principals outside your AWS organization can be associated with a resource share
+    AllowedValues:
+      - 'true'
+      - 'false'
+  Principals:
+    Type: String
+    Default: '331503828472,115885740105,162613628150'
+    Description: Comma seperated list of the principals to associate with the resource share. The possible values are IDs of AWS accounts, the ARN of an OU or organization from AWS Organizations
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: 'Transit Gateway Configurations'
+      Parameters:
+      - AutoAcceptSharedAttachments
+      - DefaultRouteTableAssociation
+      - DefaultRouteTablePropagation
+      - DnsSupport
+      - VpnEcmpSupport
+    - Label:
+        default: 'TGW Resource Share Configurations'
+      Parameters:
+      - AllowExternalPrincipals
+      - Principals
+
+# A private Autonomous System Number (ASN) for the Amazon side of a BGP session. Range 64512 to 65534 for 16-bit ASNs and 4200000000 to 4294967294 for 32-bit ASNs.
+Mappings:
+  AmazonSideAsn:
+    us-east-1:
+      ASN: '64520'
+    eu-central-1:
+      ASN: '64521'
+    eu-west-1:
+      ASN: '64522'
+
+Resources:
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties:
+      Description: !Sub "Transit Gateway ${AWS::Region}"
+      AmazonSideAsn:  !FindInMap ['AmazonSideAsn', { "Ref" : "AWS::Region" }, 'ASN']
+      AutoAcceptSharedAttachments: !Ref AutoAcceptSharedAttachments
+      DefaultRouteTableAssociation: !Ref DefaultRouteTableAssociation
+      DefaultRouteTablePropagation: !Ref DefaultRouteTablePropagation
+      DnsSupport: !Ref DnsSupport
+      VpnEcmpSupport: !Ref VpnEcmpSupport
+      Tags:
+      - Key: StackId
+        Value: !Ref "AWS::StackId"
+      - Key: Name
+        Value: !Sub "tgw-${AWS::Region}"
+
+  TgwResourceShare:
+    Type: "AWS::RAM::ResourceShare"
+    Properties:
+      Name: !Sub "${AWS::Region}-TGW Share"
+      ResourceArns:
+        - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:transit-gateway/${TransitGateway}"
+      Principals: !Split [",", !Ref Principals]
+
+Outputs:
+  TransitGateway:
+    Description: Transit Gateway ID
+    Value:
+      Ref: TransitGateway
+    Export:
+      Name: !Sub ${AWS::StackName}-TGW-ID
+  TgwResourceShare:
+    Description: Transit Gateway Resource Share ID
+    Value:
+      Ref: TgwResourceShare
+    Export:
+      Name: !Sub ${AWS::StackName}-RS-ID

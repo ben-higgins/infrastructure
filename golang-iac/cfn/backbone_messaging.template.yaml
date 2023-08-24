@@ -1,0 +1,776 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Registers Topics with Backbone
+Parameters:
+  Env:
+    Description: The Env Name that we're going to deploy
+    Type: String
+
+# Conditions that can be evaulated to alter execution
+Conditions:
+  Production: !Equals [!Ref Env, main]
+
+# Resources define the specific needs of this solution
+Resources:
+
+  #TODO create alarms when something goes inside dead letter queue
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${Env}-dead-letter-queue"
+
+  # The following are all the topics that are registered and known by backbone
+
+  # Policies
+  PolicyIssuedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-policy-issued", !Sub "${Env}-backbone-policy-issued"]
+      TopicName: !If [Production, "backbone-policy-issued", !Sub "${Env}-backbone-policy-issued"]
+
+  # Badger
+  PolicyEventSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-policy-event", !Sub "${Env}-backbone-policy-event"]
+      TopicName: !If [Production, "backbone-policy-event", !Sub "${Env}-backbone-policy-event"]
+
+  QuoteEventSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-quote-event", !Sub "${Env}-backbone-quote-event"]
+      TopicName: !If [Production, "backbone-quote-event", !Sub "${Env}-backbone-quote-event"]
+
+  ContactEventSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-contact-event", !Sub "${Env}-backbone-contact-event"]
+      TopicName: !If [Production, "backbone-contact-event", !Sub "${Env}-backbone-contact-event"]
+
+  BillingEventSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-billing-event", !Sub "${Env}-backbone-billing-event"]
+      TopicName: !If [Production, "backbone-billing-event", !Sub "${Env}-backbone-billing-event"]
+
+  PreferencesEventSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-preferences-event", !Sub "${Env}-backbone-preferences-event"]
+      TopicName: !If [Production, "backbone-preferences-event", !Sub "${Env}-backbone-preferences-event"]
+
+  PreferencesImportSuccessSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !If [Production, "backbone-preferences-import-success", !Sub "${Env}-backbone-preferences-import-success"]
+        TopicName: !If [Production, "backbone-preferences-import-success", !Sub "${Env}-backbone-preferences-import-success"]
+  # Badger-X
+  SendEmailSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-send-email", !Sub "${Env}-backbone-send-email"]
+      TopicName: !If [Production, "backbone-send-email", !Sub "${Env}-backbone-send-email"]
+
+  # Goblin
+  StoreRatesheetSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-store-ratesheet", !Sub "${Env}-backbone-store-ratesheet"]
+      TopicName: !If [Production, "backbone-store-ratesheet", !Sub "${Env}-backbone-store-ratesheet"]
+
+  # Deprecated
+  PublishBaselosscostSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-publish-baselosscost", !Sub "${Env}-backbone-publish-baselosscost"]
+      TopicName: !If [Production, "backbone-publish-baselosscost", !Sub "${Env}-backbone-publish-baselosscost"]
+
+  PublishBaselosscostConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-baselosscost", !Sub "${Env}-backbone-config-publish-baselosscost"]
+      TopicName: !If [Production, "backbone-config-publish-baselosscost", !Sub "${Env}-backbone-config-publish-baselosscost"]
+
+  # Deprecated
+  PublishRateplanSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-publish-rateplan", !Sub "${Env}-backbone-publish-rateplan"]
+      TopicName: !If [Production, "backbone-publish-rateplan", !Sub "${Env}-backbone-publish-rateplan"]
+
+  PublishRateplanConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-rateplan", !Sub "${Env}-backbone-config-publish-rateplan"]
+      TopicName: !If [Production, "backbone-config-publish-rateplan", !Sub "${Env}-backbone-config-publish-rateplan"]
+
+  # Deprecated
+  PublishFactorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-publish-factor", !Sub "${Env}-backbone-publish-factor"]
+      TopicName: !If [Production, "backbone-publish-factor", !Sub "${Env}-backbone-publish-factor"]
+
+  PublishFactorConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-factor", !Sub "${Env}-backbone-config-publish-factor"]
+      TopicName: !If [Production, "backbone-config-publish-factor", !Sub "${Env}-backbone-config-publish-factor"]
+
+  # Deprecated
+  PublishModFactorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-publish-modfactor", !Sub "${Env}-backbone-publish-modfactor"]
+      TopicName: !If [Production, "backbone-publish-modfactor", !Sub "${Env}-backbone-publish-modfactor"]
+
+  PublishModFactorConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-modfactor", !Sub "${Env}-backbone-config-publish-modfactor"]
+      TopicName: !If [Production, "backbone-config-publish-modfactor", !Sub "${Env}-backbone-config-publish-modfactor"]
+
+  CalculateRateSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-calculate-rate", !Sub "${Env}-backbone-calculate-rate"]
+      TopicName: !If [Production, "backbone-calculate-rate", !Sub "${Env}-backbone-calculate-rate"]
+
+  DeleteRateplanSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-delete-rateplan", !Sub "${Env}-backbone-delete-rateplan"]
+      TopicName: !If [Production, "backbone-delete-rateplan", !Sub "${Env}-backbone-delete-rateplan"]
+
+  # Wolverine
+  PublishAvailabilityConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-availability", !Sub "${Env}-backbone-config-publish-availability"]
+      TopicName: !If [Production, "backbone-config-publish-availability", !Sub "${Env}-backbone-config-publish-availability"]
+
+  PublishProductConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-product", !Sub "${Env}-backbone-config-publish-product"]
+      TopicName: !If [Production, "backbone-config-publish-product", !Sub "${Env}-backbone-config-publish-product"]
+
+  PublishLocationConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-location", !Sub "${Env}-backbone-config-publish-location"]
+      TopicName: !If [Production, "backbone-config-publish-location", !Sub "${Env}-backbone-config-publish-location"]
+
+  PublishClassplanConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-classplan", !Sub "${Env}-backbone-config-publish-classplan"]
+      TopicName: !If [Production, "backbone-config-publish-classplan", !Sub "${Env}-backbone-config-publish-classplan"]
+
+  PublishTerritoriesConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-territory", !Sub "${Env}-backbone-config-publish-territory"]
+      TopicName: !If [Production, "backbone-config-publish-territory", !Sub "${Env}-backbone-config-publish-territory"]
+
+  PublishCommunicationConfigSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-config-publish-communication", !Sub "${Env}-backbone-config-publish-communication"]
+      TopicName: !If [Production, "backbone-config-publish-communication", !Sub "${Env}-backbone-config-publish-communication"]
+
+  # Goblin / Wolverine
+  DraftProductVersionSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-product-version-draft", !Sub "${Env}-backbone-product-version-draft"]
+      TopicName: !If [Production, "backbone-product-version-draft", !Sub "${Env}-backbone-product-version-draft"]
+
+  PublishProductVersionSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-product-version-publish", !Sub "${Env}-backbone-product-version-publish"]
+      TopicName: !If [Production, "backbone-product-version-publish", !Sub "${Env}-backbone-product-version-publish"]
+
+  DeleteProductVersionSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-product-version-delete", !Sub "${Env}-backbone-product-version-delete"]
+      TopicName: !If [Production, "backbone-product-version-delete", !Sub "${Env}-backbone-product-version-delete"]
+
+  DeleteProductVersionAliasSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-product-version-alias-delete", !Sub "${Env}-backbone-product-version-alias-delete"]
+      TopicName: !If [Production, "backbone-product-version-alias-delete", !Sub "${Env}-backbone-product-version-alias-delete"]
+
+  # Yellowfin
+  SubmissionContactProvidedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-contact-provided", !Sub "${Env}-backbone-submission-contact-provided"]
+      TopicName: !If [Production, "backbone-submission-contact-provided", !Sub "${Env}-backbone-submission-contact-provided"]
+
+  SubmissionAbandonedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-abandoned", !Sub "${Env}-backbone-submission-abandoned"]
+      TopicName: !If [Production, "backbone-submission-abandoned", !Sub "${Env}-backbone-submission-abandoned"]
+
+  ReferralTriggerSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-trigger", !Sub "${Env}-backbone-referral-trigger"]
+      TopicName: !If [Production, "backbone-referral-trigger", !Sub "${Env}-backbone-referral-trigger"]
+
+  ReferralCreatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-created", !Sub "${Env}-backbone-referral-created"]
+      TopicName: !If [Production, "backbone-referral-created", !Sub "${Env}-backbone-referral-created"]
+
+  ReferralApprovedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-approved", !Sub "${Env}-backbone-referral-approved"]
+      TopicName: !If [Production, "backbone-referral-approved", !Sub "${Env}-backbone-referral-approved"]
+
+  ReferralRejectedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-rejected", !Sub "${Env}-backbone-referral-rejected"]
+      TopicName: !If [Production, "backbone-referral-rejected", !Sub "${Env}-backbone-referral-rejected"]
+
+  ReferralClosedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-closed", !Sub "${Env}-backbone-referral-closed"]
+      TopicName: !If [Production, "backbone-referral-closed", !Sub "${Env}-backbone-referral-closed"]
+
+  ReferralAbandonedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-abandoned", !Sub "${Env}-backbone-referral-abandoned"]
+      TopicName: !If [Production, "backbone-referral-abandoned", !Sub "${Env}-backbone-referral-abandoned"]
+
+  ReferralPendingReviewSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-referral-pending-review", !Sub "${Env}-backbone-referral-pending-review"]
+      TopicName: !If [Production, "backbone-referral-pending-review", !Sub "${Env}-backbone-referral-pending-review"]
+
+  SubmissionCreatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-created", !Sub "${Env}-backbone-submission-created"]
+      TopicName: !If [Production, "backbone-submission-created", !Sub "${Env}-backbone-submission-created"]
+
+  SubmissionUpdatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-updated", !Sub "${Env}-backbone-submission-updated"]
+      TopicName: !If [Production, "backbone-submission-updated", !Sub "${Env}-backbone-submission-updated"]
+
+  SubmissionCoverageUpdatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-coverage-updated", !Sub "${Env}-backbone-submission-coverage-updated"]
+      TopicName: !If [Production, "backbone-submission-coverage-updated", !Sub "${Env}-backbone-submission-coverage-updated"]
+
+  SubmissionLimitSelectedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-limit-selected", !Sub "${Env}-backbone-submission-limit-selected"]
+      TopicName: !If [Production, "backbone-submission-limit-selected", !Sub "${Env}-backbone-submission-limit-selected"]
+
+  SubmissionDeductibleSelectedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-submission-deductible-selected", !Sub "${Env}-backbone-submission-deductible-selected"]
+      TopicName: !If [Production, "backbone-submission-deductible-selected", !Sub "${Env}-backbone-submission-deductible-selected"]
+
+  QuoteCreatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-quote-created", !Sub "${Env}-backbone-quote-created"]
+      TopicName: !If [Production, "backbone-quote-created", !Sub "${Env}-backbone-quote-created"]
+
+  QuoteUpdatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-quote-updated", !Sub "${Env}-backbone-quote-updated"]
+      TopicName: !If [Production, "backbone-quote-updated", !Sub "${Env}-backbone-quote-updated"]
+
+  # Pennywise
+  PennywiseBillingDocumentPaidSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-billing-document-paid", !Sub "${Env}-backbone-billing-document-paid"]
+      TopicName: !If [Production, "backbone-billing-document-paid", !Sub "${Env}-backbone-billing-document-paid"]
+
+  PennywiseBillingDocumentExpiredSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-billing-document-expired", !Sub "${Env}-backbone-billing-document-expired"]
+      TopicName: !If [Production, "backbone-billing-document-expired", !Sub "${Env}-backbone-billing-document-expired"]
+
+  PennywiseBillingDocumentCancelledSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-billing-document-cancelled", !Sub "${Env}-backbone-billing-document-cancelled"]
+      TopicName: !If [Production, "backbone-billing-document-cancelled", !Sub "${Env}-backbone-billing-document-cancelled"]
+
+  PennywisePaymentAuthorizedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-payment-authorized", !Sub "${Env}-backbone-payment-authorized"]
+      TopicName: !If [Production, "backbone-payment-authorized", !Sub "${Env}-backbone-payment-authorized"]
+
+  PennywisePaymentSuccessfulSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-payment-successful", !Sub "${Env}-backbone-payment-successful"]
+      TopicName: !If [Production, "backbone-payment-successful", !Sub "${Env}-backbone-payment-successful"]
+
+  PennywisePaymentConfirmedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-payment-confirmed", !Sub "${Env}-backbone-payment-confirmed"]
+      TopicName: !If [Production, "backbone-payment-confirmed", !Sub "${Env}-backbone-payment-confirmed"]
+
+  PennywisePaymentErrorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-payment-error", !Sub "${Env}-backbone-payment-error"]
+      TopicName: !If [Production, "backbone-payment-error", !Sub "${Env}-backbone-payment-error"]
+
+  PennywiseRefundSuccessfulSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-refund-successful", !Sub "${Env}-backbone-refund-successful"]
+      TopicName: !If [Production, "backbone-refund-successful", !Sub "${Env}-backbone-refund-successful"]
+
+  PennywiseRefundConfirmedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-refund-confirmed", !Sub "${Env}-backbone-refund-confirmed"]
+      TopicName: !If [Production, "backbone-refund-confirmed", !Sub "${Env}-backbone-refund-confirmed"]
+
+  PennywiseRefundErrorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-refund-error", !Sub "${Env}-backbone-refund-error"]
+      TopicName: !If [Production, "backbone-refund-error", !Sub "${Env}-backbone-refund-error"]
+
+  PennywiseWalletInitializeSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-wallet-initialize", !Sub "${Env}-backbone-wallet-initialize"]
+      TopicName: !If [Production, "backbone-wallet-initialize", !Sub "${Env}-backbone-wallet-initialize"]
+
+  PennywiseWalletUpdateSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-wallet-update", !Sub "${Env}-backbone-wallet-update"]
+      TopicName: !If [Production, "backbone-wallet-update", !Sub "${Env}-backbone-wallet-update"]
+
+  #Janus
+  JanusRequestResponseLogSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "janus-request-response-log", !Sub "${Env}-janus-request-response-log"]
+      TopicName: !If [Production, "janus-request-response-log", !Sub "${Env}-janus-request-response-log"]
+
+  APIGatewayRequestSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-api-gateway-request", !Sub "${Env}-backbone-api-gateway-request"]
+      TopicName: !If [Production, "backbone-api-gateway-request", !Sub "${Env}-backbone-api-gateway-request"]
+
+  APIGatewayResponseSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "backbone-api-gateway-response", !Sub "${Env}-backbone-api-gateway-response"]
+      TopicName: !If [Production, "backbone-api-gateway-response", !Sub "${Env}-backbone-api-gateway-response"]
+
+# Export Arns and such for other stacks to use
+Outputs:
+#Resources
+  DeadLetterQueueARN:
+    Description: Dead letter queue to store posion messages
+    Value:
+          Fn::GetAtt:
+            - "DeadLetterQueue"
+            - "Arn"
+    Export:
+      Name: !Sub "${Env}-dead-letter-queue-arn"
+
+  # Policies
+  PolicyIssuedSNSTopic:
+    Description: Backbone Policy Issued Topic ARN
+    Value: !Ref PolicyIssuedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-policy-issued"
+
+  # Badger
+  PolicyEventSNSTopic:
+    Description: Backbone Policy Event Topic ARN
+    Value: !Ref PolicyEventSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-policy-event"
+
+  QuoteEventSNSTopic:
+    Description: Backbone Quote Event Topic ARN
+    Value: !Ref QuoteEventSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-quote-event"
+
+  ContactEventSNSTopic:
+    Description: Backbone Contact Event Topic ARN
+    Value: !Ref ContactEventSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-contact-event"
+
+  BillingEventSNSTopic:
+    Description: Backbone Policy Event Topic ARN
+    Value: !Ref BillingEventSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-billing-event"
+
+  PreferencesEventSNSTopic:
+    Description: Backbone Email Preferences Event Topic ARN
+    Value: !Ref PreferencesEventSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-preferences-event"
+
+  PreferencesImportSuccessSNSTopic:
+    Description: Badger Listrak Import Success Event Topic ARN
+    Value: !Ref PreferencesImportSuccessSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-preferences-import-success"    
+
+  # Badger-X
+  SendEmailSNSTopic:
+    Description: Backbone SendEmail Topic ARN
+    Value: !Ref SendEmailSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-sendemail"
+
+  #New Config Publish Events
+  PublishBaselosscostConfigSNSTopic:
+    Description: Backbone Baseloss Cost Topic ARN
+    Value: !Ref PublishBaselosscostConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-baselosscost"
+
+  PublishRateplanConfigSNSTopic:
+    Description: Backbone Publish Rateplan Topic ARN
+    Value: !Ref PublishRateplanConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-rateplan"
+
+  PublishFactorConfigSNSTopic:
+    Description: Backbone Publish Factor Topic ARN
+    Value: !Ref PublishFactorConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-factor"
+
+  PublishModFactorConfigSNSTopic:
+    Description: Backbone Publish Mod Factor Topic ARN
+    Value: !Ref PublishModFactorConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-modfactor"
+
+  #Deprecated events
+  PublishBaselosscostSNSTopic:
+    Description: Backbone Baseloss Cost Topic ARN
+    Value: !Ref PublishBaselosscostSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-publish-baselosscost"
+
+  PublishRateplanSNSTopic:
+    Description: Backbone Publish Rateplan Topic ARN
+    Value: !Ref PublishRateplanSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-publish-rateplan"
+
+  PublishFactorSNSTopic:
+    Description: Backbone Publish Factor Topic ARN
+    Value: !Ref PublishFactorSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-publish-factor"
+
+  PublishModFactorSNSTopic:
+    Description: Backbone Publish Mod Factor Topic ARN
+    Value: !Ref PublishModFactorSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-publish-modfactor"
+
+  #Goblin
+  StoreRatesheetSNSTopic:
+    Description: Backbone Store Ratesheet Topic ARN
+    Value: !Ref StoreRatesheetSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-store-ratesheet"
+      
+  CalculateRateSNSTopic:
+    Description: Backbone Calculate Rate Topic ARN
+    Value: !Ref CalculateRateSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-calculate-rate"
+
+  DeleteRateplanSNSTopic:
+    Description: Backbone Delete Rateplan Topic ARN
+    Value: !Ref DeleteRateplanSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-delete-rateplan"
+
+  DraftProductVersionSNSTopic:
+    Description: Backbone draft a new Rateplan Topic ARN
+    Value: !Ref DraftProductVersionSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-product-version-draft"
+
+  PublishProductVersionSNSTopic:
+    Description: Backbone Publish a new Rateplan Topic ARN
+    Value: !Ref PublishProductVersionSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-product-version-publish"
+
+  DeleteProductVersionSNSTopic:
+    Description: Backbone delete product draft Topic ARN
+    Value: !Ref DeleteProductVersionSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-product-version-delete"
+
+  DeleteProductVersionAliasSNSTopic:
+    Description: Backbone delete product version alias Topic ARN
+    Value: !Ref DeleteProductVersionAliasSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-product-version-alias-delete"
+
+  # Wolverine
+  PublishAvailabilityConfigSNSTopic:
+    Description: Backbone publish an availability config Topic ARN
+    Value: !Ref PublishAvailabilityConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-availability"
+
+  PublishProductConfigSNSTopic:
+    Description: Backbone publish a product config Topic ARN
+    Value: !Ref PublishProductConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-product"
+
+  PublishLocationConfigSNSTopic:
+    Description: Backbone publish a product location config Topic ARN
+    Value: !Ref PublishLocationConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-location"
+
+  PublishClassplanConfigSNSTopic:
+    Description: Backbone publish a product classplan config Topic ARN
+    Value: !Ref PublishClassplanConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-classplan"
+
+  PublishTerritoriesConfigSNSTopic:
+    Description: Backbone publish a product territories config Topic ARN
+    Value: !Ref PublishTerritoriesConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-territory"
+
+  PublishCommunicationConfigSNSTopic:
+    Description: Backbone publish a product communication config Topic ARN
+    Value: !Ref PublishCommunicationConfigSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-config-publish-communication"
+
+  # Yellowfin
+  SubmissionContactProvidedSNSTopic:
+    Description: Backbone - Publish a submission contact information Topic ARN
+    Value: !Ref SubmissionContactProvidedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-contact-provided"
+
+  SubmissionAbandonedSNSTopic:
+    Description: Backbone - Publish a submission abandoned Topic ARN
+    Value: !Ref SubmissionAbandonedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-abandoned"
+
+  ReferralTriggerSNSTopic:
+    Description: Backbone - Publish a referral trigger Topic ARN
+    Value: !Ref ReferralTriggerSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-trigger"
+
+  ReferralCreatedSNSTopic:
+    Description: Backbone - Publish a referral created Topic ARN
+    Value: !Ref ReferralCreatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-created"
+
+  ReferralApprovedSNSTopic:
+    Description: Backbone - Publish a referral approved Topic ARN
+    Value: !Ref ReferralApprovedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-approved"
+
+  ReferralRejectedSNSTopic:
+    Description: Backbone - Publish a referral rejected Topic ARN
+    Value: !Ref ReferralRejectedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-rejected"
+
+  ReferralClosedSNSTopic:
+    Description: Backbone - Publish a referral closed Topic ARN
+    Value: !Ref ReferralClosedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-closed"
+
+  ReferralAbandonedSNSTopic:
+    Description: Backbone - Publish a referral abandoned Topic ARN
+    Value: !Ref ReferralAbandonedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-abandoned"
+
+  ReferralPendingReviewSNSTopic:
+    Description: Backbone - Publish a referral pending review Topic ARN
+    Value: !Ref ReferralPendingReviewSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-referral-pending-review"
+
+  SubmissionCreatedSNSTopic:
+    Description: Backbone - Publish a submission created Topic ARN
+    Value: !Ref SubmissionCreatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-created"
+
+  SubmissionUpdatedSNSTopic:
+    Description: Backbone - Publish a submission updated Topic ARN
+    Value: !Ref SubmissionUpdatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-updated"
+
+  SubmissionCoverageUpdatedSNSTopic:
+    Description: Backbone - Publish a submission coverage updated Topic ARN
+    Value: !Ref SubmissionCoverageUpdatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-coverage-updated"
+
+  SubmissionLimitSelectedSNSTopic:
+    Description: Backbone - Publish a submission limit selected Topic ARN
+    Value: !Ref SubmissionLimitSelectedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-limit-selected"
+
+  SubmissionDeductibleSelectedSNSTopic:
+    Description: Backbone - Publish a submission deductible selected Topic ARN
+    Value: !Ref SubmissionDeductibleSelectedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-submission-deductible-selected"
+
+  QuoteCreatedSNSTopic:
+    Description: Backbone - Publish a quote created Topic ARN
+    Value: !Ref QuoteCreatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-quote-created"
+
+  QuoteUpdatedSNSTopic:
+    Description: Backbone - Publish a quote updated Topic ARN
+    Value: !Ref QuoteUpdatedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-quote-updated"
+
+  # Pennywise
+  PennywiseBillingDocumentPaidSNSTopic:
+    Description: Backbone - Publish a billing document paid Topic ARN
+    Value: !Ref PennywiseBillingDocumentPaidSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-billing-document-paid"
+
+  PennywiseBillingDocumentExpiredSNSTopic:
+    Description: Backbone - Publish a billing document expired Topic ARN
+    Value: !Ref PennywiseBillingDocumentExpiredSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-billing-document-expired"
+
+  PennywiseBillingDocumentCancelledSNSTopic:
+    Description: Backbone - Publish a billing document cancelled Topic ARN
+    Value: !Ref PennywiseBillingDocumentCancelledSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-billing-document-cancelled"
+
+  PennywisePaymentAuthorizedSNSTopic:
+    Description: Backbone - Publish a payment authorized Topic ARN
+    Value: !Ref PennywisePaymentAuthorizedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-payment-authorized"
+
+  PennywisePaymentSuccessfulSNSTopic:
+    Description: Backbone - Publish a payment successful Topic ARN
+    Value: !Ref PennywisePaymentSuccessfulSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-payment-successful"
+
+  PennywisePaymentConfirmedSNSTopic:
+    Description: Backbone - Publish a payment confirmed Topic ARN
+    Value: !Ref PennywisePaymentConfirmedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-payment-confirmed"
+
+  PennywisePaymentErrorSNSTopic:
+    Description: Backbone - Publish a payment error Topic ARN
+    Value: !Ref PennywisePaymentErrorSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-payment-error"
+
+  PennywiseRefundSuccessfulSNSTopic:
+    Description: Backbone - Publish a refund successful Topic ARN
+    Value: !Ref PennywiseRefundSuccessfulSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-refund-successful"
+
+  PennywiseRefundConfirmedSNSTopic:
+    Description: Backbone - Publish a refund confirmed Topic ARN
+    Value: !Ref PennywiseRefundConfirmedSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-refund-confirmed"
+
+  PennywiseRefundErrorSNSTopic:
+    Description: Backbone - Publish a refund error Topic ARN
+    Value: !Ref PennywiseRefundErrorSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-refund-error"
+
+  PennywiseWalletInitializeSNSTopic:
+    Description: Backbone - Publish a wallet initialize Topic ARN
+    Value: !Ref PennywiseWalletInitializeSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-wallet-initialize"
+
+  PennywiseWalletUpdateSNSTopic:
+    Description: Backbone - Publish a wallet update Topic ARN
+    Value: !Ref PennywiseWalletUpdateSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-wallet-update"
+
+  #Janus
+  JanusRequestResponseLogSNSTopic:
+    Description: Save request and response data
+    Value: !Ref JanusRequestResponseLogSNSTopic
+    Export:
+      Name: !Sub "${Env}-janus-request-response-log"
+
+  APIGatewayRequestSNSTopic:
+    Description: Save request data
+    Value: !Ref APIGatewayRequestSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-api-gateway-request"
+
+  APIGatewayResponseSNSTopic:
+    Description: Save request and response data
+    Value: !Ref APIGatewayResponseSNSTopic
+    Export:
+      Name: !Sub "${Env}-backbone-api-gateway-response"

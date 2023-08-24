@@ -1,0 +1,310 @@
+#!/bin/bash
+
+. bin/functions.sh
+
+set -x
+
+
+#changed in tnp-492
+
+if [ "${ENV_NAME}" != "" ]; then
+    NAME=${ENV_NAME}
+else
+    NAME_RAW=$( sed -n 's/^Name://p' params/${ENV_NAME}/global.params )
+    NAME=$( echo -e $NAME_RAW | tr -d '[:space:]' )
+fi
+
+# moved to pipeline
+GLOBAL_PARAMS_FILE=params/$NAME/global.params
+
+## set cloudformation cli values
+ROLLBACK=--disable-rollback
+CAPABILITIES="--capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+
+#load params every time script runs
+load_params() {
+
+    local tmpfile=$( maketemp )
+    local params_file=$1
+
+    [ -r "${GLOBAL_PARAMS_FILE}" ] && cat ${GLOBAL_PARAMS_FILE} | parse_yaml >> $tmpfile
+    [ -r "${params_file}"        ] && cat "${params_file}"      | parse_yaml >> $tmpfile
+
+    while read -r line
+    do
+        eval "export $line"
+    done < "$tmpfile"
+
+    # Always override
+    export DeployBucketPrefix=$( get_git_hash )
+    rm -f $tmpfile
+
+    ### override region the region value in global params
+    if [ "${REGION_OVERRIDE}" != "" ]; then
+        eval "export Region=${REGION_OVERRIDE}"
+    fi
+
+}
+
+# set default variables
+hash=$(get_git_hash);
+Lineage="Build=$hash";
+echo "Lineage: $Lineage"
+echo ""
+
+CFN_URL=$( get_cfn_url "composite" )
+PARAMS_FILE="params/$NAME/composite.params"
+PARAMS_URL=$( get_params_url "composite" )
+
+load_params ${PARAMS_FILE}
+
+STACK_NAME=$NAME
+
+###########
+# determine the stack status
+###########
+query_status() {
+    local result=$( aws cloudformation \
+            describe-stacks \
+		    --region ${Region} \
+            --stack-name ${STACK_NAME} \
+            --query 'Stacks[0].StackStatus' )
+    echo ${result}
+}
+
+
+### override region for query to see if stack has already been created
+if [ "${REGION_OVERRIDE}" != "" ]; then
+    eval "export Region=${REGION_OVERRIDE}"
+fi
+
+stack_status=$( aws cloudformation list-stacks \
+	--region ${Region} \
+	--stack-status-filter \
+	CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --output text \
+	| awk '{print $4}' | grep $STACK_NAME )
+
+stack_status=$( echo $stack_status | tr -d '"' )
+ 
+if [ "$1" = "delete" ]; then
+    INVOCATION_NAME="delete"
+else
+    if [ "$stack_status" != "" ]; then
+        result=$( query_status ${STACK_NAME} )
+        result=$( echo $result | tr -d '"' )
+
+        echo Status of stack \"${STACK_NAME}\" : ${result}
+
+        if [ "CREATE_COMPLETE" = "$result" ]; then
+	        INVOCATION_NAME="update"
+        elif [ "UPDATE_COMPLETE" = "$result" ]; then
+	        INVOCATION_NAME="update"
+        elif [ "ROLLBACK_COMPLETE" = "$result" -o "UPDATE_ROLLBACK_COMPLETE" = "$result" ]; then
+	        INVOCATION_NAME="update"
+        elif [ "CREATE_FAILED" = "$result" ]; then
+            aws cloudformation describe-stacks \
+                --region ${Region} \
+                --stack-name ${STACK_NAME}
+            exit 1
+        fi
+    else
+        INVOCATION_NAME="create"
+    fi
+fi
+
+push_code_to_S3 () {
+	aws s3 --region ${Region} sync --delete . s3://${Bucket}/${EnvType}/${DeployBucketPrefix} \
+		--exclude "**/.DS_Store" \
+		--exclude ".git/**" \
+		--exclude "params/$NAME/*.params"
+
+	echo "Done with sync to S3"   
+}
+
+
+generate_params_json() {
+
+    cf_file=$1
+    params_file=$2
+
+    load_params ${params_file}
+
+    parameter_keys=$( find_cf_params $cf_file )
+    echo "["
+    for k in ${parameter_keys}; do
+        val=$( eval echo \$$k )
+        if ! [ -z "${val}" ]; then
+            echo "  { \"ParameterKey\": \"$k\",  \"ParameterValue\": \"${val}\" },"
+        fi
+    done
+
+    echo "  { \"ParameterKey\": \"DeployBucketPrefix\", \"ParameterValue\": \"${EnvType}/$( get_git_hash )\" }"
+    echo "]"
+
+}
+
+#
+# create 
+generate_params_file() {
+
+    cf_file=$( echo $1 | sed 's/file:\/\///' )
+    params_file=$2
+    local tmpfile=$( maketemp )
+    generate_params_json "${cf_file}" "${params_file}" >> "${tmpfile}"
+    echo $tmpfile
+}
+
+
+do_create () {
+
+    PARAMS_JSON_FILE=$( generate_params_file ${CFN_URL} ${PARAMS_FILE} )
+    
+    cmd="aws cloudformation \
+        create-stack \
+	--region ${Region} \
+        --stack-name    ${STACK_NAME} \
+        --template-body ${CFN_URL} \
+        --parameters file://${PARAMS_JSON_FILE} \
+        --tags Key=Lineage,Value=$Lineage \
+        ${CAPABILITIES} ${ROLLBACK}"
+    echo ${cmd}
+    ${cmd}
+
+    echo ${PARAMS_JSON_FILE}
+    cat ${PARAMS_JSON_FILE}
+
+    do_monitor
+} 
+
+do_update () {
+
+    PARAMS_JSON_FILE=$( generate_params_file ${CFN_URL} ${PARAMS_FILE} )
+    cmd="aws cloudformation \
+        update-stack \
+	--region ${Region} \
+        --stack-name    ${STACK_NAME} \
+        --template-body ${CFN_URL} \
+        --parameters    file://${PARAMS_JSON_FILE}  \
+        ${CAPABILITIES}"
+    echo ${cmd}
+    ${cmd}
+    #rm -f ${PARAMS_JSON_FILE}
+    do_monitor
+}
+
+do_delete () {
+
+    # cleanup eks deployments
+    # configure kubectl
+    STACKNAME=$( ./bin/get-stack-name "${STACK_NAME}-Eks" $Region  )
+    EKS_NAME=$( ./bin/get-key-value $STACKNAME $Region "EksClusterName" )
+
+    aws eks --region ${Region} update-kubeconfig --name $EKS_NAME
+
+    charts=$( helm list | awk 'NR>1 {print $1}' )
+    for i in $charts
+    do
+        helm uninstall $i
+    done
+
+    ncharts=$( helm list -n kube-system | awk 'NR>1 {print $1}' )
+
+    for i in $ncharts
+    do
+        helm -n kube-system uninstall $i
+    done
+
+    sleep 5m
+    # tear down cloudformation stacks
+    aws cloudformation delete-stack --region ${Region} --stack-name ${STACK_NAME}
+}
+
+do_monitor () {
+
+    result=$( query_status ${STACK_NAME} )
+    result=$( echo $result | tr -d '"')
+
+    echo Status of stack \"${STACK_NAME}\" : ${result}
+    while [ "CREATE_IN_PROGRESS" == "$result" ]; do
+        sleep 60
+        result=$( query_status ${STACK_NAME} )
+        result=$( echo $result | tr -d '"')
+        echo Status of stack \"${STACK_NAME}\" : $result
+    done
+
+    while [ "UPDATE_IN_PROGRESS" == "$result" ]; do
+        sleep 60
+        result=$( query_status ${STACK_NAME} )
+        result=$( echo $result | tr -d '"')
+        echo Status of stack \"${STACK_NAME}\" : $result
+    done
+
+    if [ "CREATE_FAILED" = "$result" ]; then
+        aws cloudformation describe-stacks \
+	   --region ${Region} \
+           --stack-name ${STACK_NAME} 
+        exit 1
+    fi
+    if [ "CREATE_COMPLETE" == "$result" ]; then
+        pwd
+        ./bin/eks-cluster-config ${STACK_NAME}
+        exit 0
+    fi
+    if [ "UPDATE_COMPLETE" == "$result" ]; then
+        pwd
+        ./bin/eks-cluster-config ${STACK_NAME}
+        exit 0
+    fi
+    if [ "DELETE_IN_PROGRESS" == "$result" ]; then
+        exit 0
+    fi
+
+}
+
+do_validate () { 
+    aws cloudformation validate-template  --region ${Region} --template-body ${CFN_URL} 
+}
+
+do_parameters() { 
+    local CFN_FILE=$( echo ${CFN_URL} | sed 's/file:\/\//' )
+    cat "${CFN_FILE}" | report_on_cf_params
+}
+
+
+#
+# push syntax
+#
+if [ "${INVOCATION_NAME}" = "push" ]; then 
+    push_code_to_S3  
+    echo 
+    echo "Pushed codebase to s3://${arrB[0]}/${DeployBucketPrefix}"
+    echo    
+    exit 0
+fi
+
+#
+# create syntax
+#
+if [ "${INVOCATION_NAME}" = "create" ]; then 
+    push_code_to_S3  
+    do_create
+    exit 0
+fi
+
+#
+# Update syntax
+#
+if [ "${INVOCATION_NAME}" = "update" ]; then 
+    push_code_to_S3  
+    do_update
+    exit 0
+fi
+
+#
+# Delete syntax
+#
+if [ "${INVOCATION_NAME}" = "delete" ]; then 
+    do_delete
+    exit 0
+fi
+

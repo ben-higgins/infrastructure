@@ -1,0 +1,4 @@
+MWWAEnvironmentClass: mw1.medium
+MWAAServiceTeamOwner: mind-readers
+MWAAMaxWorkers: 10
+MWAALogLevel: INFO

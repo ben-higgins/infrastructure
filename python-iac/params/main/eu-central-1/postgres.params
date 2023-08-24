@@ -1,0 +1,8 @@
+PGEngine: postgres
+PGEngineVersion: 11.9
+PGEngineFamily: postgres11
+PGDBInstanceClass: db.r5.large
+PGDBAllocatedStorage: 20
+PGBackupRetentionPeriod: 30
+PGSQLMultiAZ: false
+

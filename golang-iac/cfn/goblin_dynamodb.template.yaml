@@ -1,0 +1,328 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name
+    Type: String
+  DynamoBackup:
+    Type: String
+    Default: true
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+##############################################
+## baselosscost
+##############################################
+  GoblinBaselossscostDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: sort
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      - AttributeName: sort
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-baselosscost
+        - !Sub "${Env}.goblin-baselosscost"
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+#############################################
+## factory
+#############################################
+  GoblinFactoryDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: sort
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      - AttributeName: sort
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-factory
+        - !Sub "${Env}.goblin-factory"
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # Dynamo caching
+  GoblinFactoryDynamoCache:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: key
+        AttributeType: S
+      KeySchema:
+      - AttributeName: key
+        KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 10
+        WriteCapacityUnits: 10
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-factory-cache
+        - !Sub "${Env}.goblin-factory-cache"
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+  
+  # Sclaing dynamo caching
+  GoblinFactoryCacheTableWriteCapacityScalableTarget: 
+    Type: "AWS::ApplicationAutoScaling::ScalableTarget"
+    Properties: 
+      MaxCapacity: 4000
+      MinCapacity: 10
+      ResourceId: !Join [ "", [ "table/", !Ref GoblinFactoryDynamoCache] ] 
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: "dynamodb:table:WriteCapacityUnits"
+      ServiceNamespace: dynamodb
+  GoblinFactoryCacheTableWriteScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: 
+        Ref: GoblinFactoryCacheTableWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 60 # Scale up fast; Downscale slow
+        ScaleOutCooldown: 240
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  GoblinFactoryCacheTableReadCapacityScalableTarget: 
+    Type: "AWS::ApplicationAutoScaling::ScalableTarget"
+    Properties: 
+      MaxCapacity: 4000
+      MinCapacity: 5
+      ResourceId: !Join [ "", [ "table/", !Ref GoblinFactoryDynamoCache] ] 
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: "dynamodb:table:ReadCapacityUnits"
+      ServiceNamespace: dynamodb
+  GoblinFactoryCacheTableReadScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: 
+        Ref: GoblinFactoryCacheTableReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 60 # Scale up fast; Downscale slow
+        ScaleOutCooldown: 240
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+#################################################
+## mod-factor
+#################################################
+  GoblinModFactorDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: sort
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      - AttributeName: sort
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-modfactor
+        - !Sub "${Env}.goblin-modfactor"
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+########################################################
+## rateplan-store
+########################################################
+  GoblinRateplanDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: rateplanID
+        AttributeType: S
+      - AttributeName: alias
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      - AttributeName: rateplanID
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-rateplan
+        - !Sub "${Env}.goblin-rateplan"
+      GlobalSecondaryIndexes:
+        - IndexName: alias-index
+          KeySchema: 
+          - AttributeName: alias
+            KeyType: HASH          
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: ALL
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+###################################################
+## ratesheet-store
+###################################################
+  GoblinRatesheetDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 10
+      TableName:
+        Fn::If:
+        - Prod
+        - goblin-ratesheet
+        - !Sub "${Env}.goblin-ratesheet"
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # Scaling
+  ScalingRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+        - 
+          Effect: Allow
+          Principal: 
+            Service: 
+            - 
+              "application-autoscaling.amazonaws.com"
+          Action: 
+          - 
+            "sts:AssumeRole"
+      Path: "/"
+      Policies: 
+        - 
+          PolicyName: root
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+            - 
+              Effect: Allow
+              Action: 
+              - "dynamodb:DescribeTable"
+              - "dynamodb:UpdateTable"
+              - "cloudwatch:PutMetricAlarm"
+              - "cloudwatch:DescribeAlarms"
+              - "cloudwatch:GetMetricStatistics"
+              - "cloudwatch:SetAlarmState"
+              - "cloudwatch:DeleteAlarms"
+              Resource: "*"
+  
+  GoblinRatesheetTableWriteCapacityScalableTarget: 
+    Type: "AWS::ApplicationAutoScaling::ScalableTarget"
+    Properties: 
+      MaxCapacity: 4000
+      MinCapacity: 20
+      ResourceId: !Join [ "", [ "table/", !Ref GoblinRatesheetDynamo] ] 
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: "dynamodb:table:WriteCapacityUnits"
+      ServiceNamespace: dynamodb
+  
+  GoblinRatesheetTableWriteScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: 
+        Ref: GoblinRatesheetTableWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 60 # Scale up fast; Downscale slow
+        ScaleOutCooldown: 240
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  
+  GoblinRatesheetTableReadCapacityScalableTarget: 
+    Type: "AWS::ApplicationAutoScaling::ScalableTarget"
+    Properties: 
+      MaxCapacity: 4000
+      MinCapacity: 5
+      ResourceId: !Join [ "", [ "table/", !Ref GoblinRatesheetDynamo] ] 
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: "dynamodb:table:ReadCapacityUnits"
+      ServiceNamespace: dynamodb
+  
+  GoblinRatesheetTableReadScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: 
+        Ref: GoblinRatesheetTableReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 60 # Scale up fast; Downscale slow
+        ScaleOutCooldown: 240
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization

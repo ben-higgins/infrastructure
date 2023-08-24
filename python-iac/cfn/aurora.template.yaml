@@ -1,0 +1,182 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MySQL/Postgres Aurora Template
+Parameters:
+  Name:
+    Type: String
+  EnvType:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  VpcCIDR:
+    Type: String
+  SubnetGroup:
+    Type: String
+  Engine:
+    Type: String
+  EngineVersion:
+    Type: String
+  EngineFamily:
+    Type: String
+  DBInstanceClass:
+    Type: String
+  DeployAuroraPostgres:
+    Type: String
+  DBPort:
+    Type: Number
+  VPNCidr:
+    Type: String
+  PubliclyAccessible:
+    Type: String
+    AllowedValues: ['true', 'false']
+
+Conditions:
+  CreateAuroraPostgres: !Equals [ !Ref DeployAuroraPostgres, "true"]
+  CreateAuroraMySQL: !Equals [ !Ref DeployAuroraPostgres, "false"]
+Resources:
+  AuroraSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - aurora Security Group" ] ]
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: 'mysql aurora access'
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VPNCidr
+          Description: 'vpn endpoint vpc cidr'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-${Engine}-securityGroup'
+
+  RDSInstanceRotationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'This is the secret for my RDS instance'
+      Name: !Sub ${Name}/${Engine}-cluster
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "db_admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  SecretRDSInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RDSInstanceRotationSecret
+      TargetId: !Ref RDSCluster
+      TargetType: AWS::RDS::DBCluster
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds: !Split [ ',', !Ref SubnetGroup ]
+
+  RDSCluster:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      DBClusterIdentifier: !Sub ${AWS::StackName}-${Engine}-cluster
+      DBClusterParameterGroupName: !If [CreateAuroraPostgres, !Ref PGRDSDBClusterParameterGroup, !Ref MySQLRDSDBClusterParameterGroup]
+      Engine: !Ref Engine
+      EngineVersion: !Ref EngineVersion
+      EngineMode: provisioned
+      Port: !Ref DBPort
+      StorageEncrypted: true
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSInstanceRotationSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSInstanceRotationSecret, ':SecretString:password}}' ]]
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      DBSubnetGroupName:
+        Ref: DBSubnetGroup
+
+  MySQLRDSDBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Condition: CreateAuroraMySQL
+    Properties:
+      Description: "CloudFormation Aurora Cluster Parameter Group"
+      Family: !Ref EngineFamily
+      Parameters:
+        time_zone: US/Eastern
+        max_allowed_packet: 1073741824
+        innodb_buffer_pool_size: '{DBInstanceClassMemory*3/4}'
+
+
+  PGRDSDBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Condition: CreateAuroraPostgres
+    Properties:
+      Description: "CloudFormation Aurora Cluster Parameter Group"
+      Family: !Ref EngineFamily
+      Parameters:
+        rds.force_ssl: 1
+
+  RDSDBInstance1:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBClusterIdentifier:
+        Ref: RDSCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBParameterGroupName: !If [CreateAuroraPostgres, !Ref PGRDSDBParameterGroup, !Ref MySQLRDSDBParameterGroup]
+      Engine: !Ref Engine
+      PubliclyAccessible: !Ref PubliclyAccessible
+      DBSubnetGroupName:
+        Ref: DBSubnetGroup
+
+  RDSDBInstance2:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref RDSCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBParameterGroupName: !If [CreateAuroraPostgres, !Ref PGRDSDBParameterGroup, !Ref MySQLRDSDBParameterGroup]
+      Engine: !Ref Engine
+      PubliclyAccessible: !Ref PubliclyAccessible
+      DBSubnetGroupName:
+        Ref: DBSubnetGroup
+
+  MySQLRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateAuroraMySQL
+    Properties:
+      Description: CloudFormation Aurora Parameter Group
+      Family: !Ref EngineFamily
+      Parameters:
+        sql_mode: IGNORE_SPACE
+        max_allowed_packet: 1073741824
+        innodb_buffer_pool_size: '{DBInstanceClassMemory*3/4}'
+
+  PGRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateAuroraPostgres
+    Properties:
+      Description: "Aurora PG Database Instance Parameter Group"
+      Family: !Ref EngineFamily
+      Parameters:
+        shared_preload_libraries: auto_explain,pg_stat_statements,pg_hint_plan,pgaudit
+        log_statement: "ddl"
+        log_connections: 1
+        log_disconnections: 1
+        log_lock_waits: 1
+        log_min_duration_statement: 5000
+        auto_explain.log_min_duration: 5000
+        auto_explain.log_verbose: 1
+        log_rotation_age: 1440
+        log_rotation_size: 102400
+        rds.log_retention_period: 10080
+        random_page_cost: 1
+        track_activity_query_size: 16384
+        idle_in_transaction_session_timeout: 7200000
+        statement_timeout: 7200000
+        search_path: '"$user",public'
+
+
+Outputs:
+  SecretsName:
+    Value: !Sub ${Name}/${Engine}-cluster
+  RDSAddress:
+    Value: !GetAtt RDSCluster.Endpoint.Address

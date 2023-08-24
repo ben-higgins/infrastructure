@@ -1,0 +1,23 @@
+apiVersion: gateway.solo.io/v1
+kind: RouteTable
+metadata:
+  name: {{ .Values.serviceName }}
+  namespace: ops
+spec:
+  routes:
+    - matchers:
+        - regex: /api/?$
+      redirectAction:
+        hostRedirect: developer.reptrak.com
+        pathRedirect: '/'
+    - matchers:
+        - regex: /api/.+
+      routeAction:
+        single:
+          upstream:
+            name: default-{{ .Values.serviceName }}-svc-{{ .Values.service.port }}
+      options:
+        regexRewrite:
+          pattern:
+            regex: '^/api/(.+)$'
+          substitution: '/\1'

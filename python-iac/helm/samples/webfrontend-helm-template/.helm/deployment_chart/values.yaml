@@ -1,0 +1,21 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null1
+envType: null
+
+replicaCount: 1
+
+container:
+  port: 80
+  image: null
+  liveness_delay: 30
+  readiness_delay: 30
+
+service:
+  type: LoadBalancer
+  port: 80
+  protocol: TCP
+
+
+

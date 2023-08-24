@@ -1,0 +1,23 @@
+dbeng-airflow
+venv
+.venv
+.env
+
+# Editors
+.vscode/
+.idea/
+
+# Mac/OSX
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# airflow versioning file
+airflow-requirements-plugins-s3-versions.json
+repo-under-test/

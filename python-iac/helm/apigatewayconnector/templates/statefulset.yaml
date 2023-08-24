@@ -1,0 +1,58 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    control-plane: controller-manager
+    controller-tools.k8s.io: "1.0"
+  name: {{ .Release.Name }}-statefulset
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      controller-tools.k8s.io: "1.0"
+  serviceName: {{ .Release.Name }}-service
+  template:
+    metadata:
+      annotations:
+        iam.amazonaws.com/role: {{ .Values.kube2iam }}
+      labels:
+        control-plane: controller-manager
+        controller-tools.k8s.io: "1.0"
+    spec:
+      serviceAccountName: {{ .Release.Name }}-service-account
+      containers:
+      - command:
+        - /manager
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SECRET_NAME
+          value: {{ .Release.Name }}-secret
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: Always
+        name: manager
+        ports:
+        - containerPort: 9876
+          name: webhook-server
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 100m
+            memory: 30Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi
+        volumeMounts:
+        - mountPath: /tmp/cert
+          name: cert
+          readOnly: true
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ .Release.Name }}-secret

@@ -1,0 +1,2 @@
+# set RestoreSource to "" to prevent restoring tables
+RestoreSource: develop

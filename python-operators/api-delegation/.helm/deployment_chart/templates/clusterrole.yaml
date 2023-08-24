@@ -1,0 +1,18 @@
+# Allow access to list routetable and create, update the virtualservice
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.serviceName }}-role
+rules:
+- apiGroups: ["gateway.solo.io"]
+  resources: ["virtualservices", "routetables"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["gloo.solo.io"]
+  resources: ["upstreams"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "delete"]

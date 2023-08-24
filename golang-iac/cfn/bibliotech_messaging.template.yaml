@@ -1,0 +1,511 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Infrastructure for Bibliotech Tenants
+
+Parameters:
+  Env:
+    Description: The Env Name that we're going to deploy this Env into (prod/staging/test or something else)
+    Type: String
+
+# Conditions that can be evaulated to alter execution
+Conditions:
+  Production: !Equals [!Ref Env, prod]
+
+Resources:
+
+  ##########################################################################
+  # S3 buckets
+  ##########################################################################
+  # S3 bucket required to upload files
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [Production, "bibliotech-upload", !Sub "${Env}-bibliotech-upload"]
+      # Delete uploaded but not registered files older than 3 days
+      LifecycleConfiguration:
+        Rules:
+        - Id: CleanUp
+          Status: Enabled
+          ExpirationInDays: '3'
+          AbortIncompleteMultipartUpload:
+            DaysAfterInitiation: '3'
+  UploadBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadBucket
+      PolicyDocument:
+        Statement:
+        - Sid: UploadBucketPolicyAllowedRoles
+          Effect: Allow
+          Action:
+          - s3:*
+          Principal: "*"
+          Resource:
+            Fn::Join:
+              - ""
+              -
+                - "arn:aws:s3:::"
+                - !Ref UploadBucket
+                - "/*"
+          Condition:
+            StringLike:
+              aws:PrincipalArn:
+                - !Sub "arn:aws:iam::${AWS::AccountId}:role/*"
+
+  ##########################################################################
+  # Policies
+  ##########################################################################
+
+
+  # policy to allow role to subscribe to document SNS topic
+  BibliotechDocumentsSNSPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !If [Production, "bibliotech-document-sns-policy", !Sub "${Env}-bibliotech-document-sns-policy"]
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 'sns:Subscribe'
+            Resource:
+              - !Ref RegisteredSNSTopic
+              - !Ref UpdatedSNSTopic
+
+
+  ##########################################################################
+  # document SNS topics
+  ##########################################################################
+  RegisterSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-document-register", !Sub "${Env}-bibliotech-document-register"]
+      TopicName: !If [Production, "bibliotech-document-register", !Sub "${Env}-bibliotech-document-register"]
+  UpdateSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-document-update", !Sub "${Env}-bibliotech-document-update"]
+      TopicName: !If [Production, "bibliotech-document-update", !Sub "${Env}-bibliotech-document-update"]
+  RegisteredSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-document-registered", !Sub "${Env}-bibliotech-document-registered"]
+      TopicName: !If [Production, "bibliotech-document-registered", !Sub "${Env}-bibliotech-document-registered"]
+  UpdatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-document-updated", !Sub "${Env}-bibliotech-document-updated"]
+      TopicName: !If [Production, "bibliotech-document-updated", !Sub "${Env}-bibliotech-document-updated"]
+
+
+##########################################################################
+  # document Logs
+  ##########################################################################
+  DocumentRegisterSNSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-document-sns-register", !Sub "${Env}-bibliotech-document-sns-register"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  DocumentUpdateSNSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-document-sns-update", !Sub "${Env}-bibliotech-document-sns-update"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  DocumentRestLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-document-rest", !Sub "${Env}-bibliotech-document-rest"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  DocumentDownloadURLLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-document-download-url", !Sub "${Env}-bibliotech-document-download-url"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  DocumentUploadURLLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-document-upload-url", !Sub "${Env}-bibliotech-document-upload-url"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  ##########################################################################
+  # document LogGroup Subscription Filters
+  ##########################################################################
+  DocumentRegisterSNSFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref DocumentRegisterSNSLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  DocumentUpdateSNSFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref DocumentUpdateSNSLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  DocumentRestFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref DocumentRestLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  DocumentDownloadURLFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref DocumentDownloadURLLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  DocumentUploadURLFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref DocumentUploadURLLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+
+  ##########################################################################
+  # rendering SNS topics
+  ##########################################################################
+  GenerateSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-rendering-generate", !Sub "${Env}-bibliotech-rendering-generate"]
+      TopicName: !If [Production, "bibliotech-rendering-generate", !Sub "${Env}-bibliotech-rendering-generate"]
+
+  # policy to allow role to subscribe to rendering SNS topic
+  BibliotechRenderingSNSPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !If [Production, "bibliotech-rendering-sns-policy", !Sub "${Env}-bibliotech-rendering-sns-policy"]
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 'sns:Publish'
+            Resource:
+              - !Ref GenerateSNSTopic
+
+  ##########################################################################
+  # rendering Logs
+  ##########################################################################
+  RenderingStructureLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-structure", !Sub "${Env}-bibliotech-rendering-structure"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingGenerateSNSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-generate-sns", !Sub "${Env}-bibliotech-rendering-generate-sns"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingRESTLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-rest", !Sub "${Env}-bibliotech-rendering-rest"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingRenderSFNLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-sfn-render", !Sub "${Env}-bibliotech-rendering-sfn-render"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingRegisterSFNLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-sfn-register", !Sub "${Env}-bibliotech-rendering-sfn-register"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingJoinSFNLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-sfn-join", !Sub "${Env}-bibliotech-rendering-sfn-join"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  RenderingRollbackSFNLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-rendering-sfn-rollback", !Sub "${Env}-bibliotech-rendering-sfn-rollback"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  ##########################################################################
+  # rendering LogGroup Subscription Filters
+  ##########################################################################
+  RenderingStructureFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingStructureLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingGenerateSNSFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingGenerateSNSLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingRESTFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingRESTLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingRenderSFNFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingRenderSFNLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingRegisterSFNFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingRegisterSFNLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingJoinSFNFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingJoinSFNLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  RenderingRollbackSFNFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref RenderingRollbackSFNLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+
+  ##########################################################################
+  # tenants SNS topics
+  ##########################################################################
+  TenantRegisterSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-tenant-register", !Sub "${Env}-bibliotech-tenant-register"]
+      TopicName: !If [Production, "bibliotech-tenant-register", !Sub "${Env}-bibliotech-tenant-register"]
+  TenantUpdateSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-tenant-update", !Sub "${Env}-bibliotech-tenant-update"]
+      TopicName: !If [Production, "bibliotech-tenant-update", !Sub "${Env}-bibliotech-tenant-update"]
+  TenantEnabledSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-tenant-enabled", !Sub "${Env}-bibliotech-tenant-enabled"]
+      TopicName: !If [Production, "bibliotech-tenant-enabled", !Sub "${Env}-bibliotech-tenant-enabled"]
+  TenantUpdatedSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !If [Production, "bibliotech-tenant-updated", !Sub "${Env}-bibliotech-tenant-updated"]
+      TopicName: !If [Production, "bibliotech-tenant-updated", !Sub "${Env}-bibliotech-tenant-updated"]
+
+  ##########################################################################
+  # tendant Logs
+  ##########################################################################
+  TenantRegisterSNSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-tenant-sns-register", !Sub "${Env}-bibliotech-tenant-sns-register"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  TenantUpdateSNSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-tenant-sns-update", !Sub "${Env}-bibliotech-tenant-sns-update"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  TenantConfigRepositoryLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-tenant-config-repository", !Sub "${Env}-bibliotech-tenant-config-repository"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  TenantRESTLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Join ["", ["/aws/lambda/", !If [Production, "bibliotech-tenant-rest", !Sub "${Env}-bibliotech-tenant-rest"]]] 
+      RetentionInDays:
+        Fn::If: [Production, 120, 14]
+
+  # CloudTrail and CloudWatch
+  LogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # Had a Global Namespace collision when trying to remove "prod"  from name.  so deviation of
+      # normal pattern here
+      BucketName: !Sub "${Env}-bibliotech-logs"
+      # Delete logs older than 90 days in prod and 2 days in dev/test/staging
+      LifecycleConfiguration:
+        Rules:
+        - Id: CleanUp
+          Status: Enabled
+          ExpirationInDays: !If [Production, '90', '2']
+  LogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: LogsBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Sid: AWSCloudTrailAclCheck
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Action: s3:GetBucketAcl
+          Resource: !Sub "arn:aws:s3:::${LogsBucket}"
+        - Sid: AWSCloudTrailWrite
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Action: s3:PutObject
+          Resource: !Sub "arn:aws:s3:::${LogsBucket}/*"
+          Condition:
+            StringEquals:
+              "s3:x-amz-acl": "bucket-owner-full-control"
+  
+  TrailGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !If [Production, "bibliotech-trail-group", !Sub "${Env}-bibliotech-trail-group"]
+      RetentionInDays: 14
+  
+  TrailGroupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !If [Production, "bibliotech-trail-role", !Sub "${Env}-bibliotech-trail-role"]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Sid: AssumeRole1
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: TrailPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: !GetAtt TrailGroup.Arn
+  
+  Trail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn:
+      - LogsBucketPolicy
+    Properties:
+      TrailName: !If [Production, "bibliotech-trail", !Sub "${Env}-bibliotech-trail"]
+      CloudWatchLogsLogGroupArn: !GetAtt TrailGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt TrailGroupRole.Arn
+      EnableLogFileValidation: true
+      EventSelectors:
+        -
+          IncludeManagementEvents: true
+          ReadWriteType: WriteOnly
+      IsLogging: true
+      S3BucketName:
+        Ref: LogsBucket
+      S3KeyPrefix: ""
+
+  ##########################################################################
+  # LogGroup Subscription Filters
+  ##########################################################################
+  TenantRegisterSNSFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref TenantRegisterSNSLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  TenantUpdateSNSFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref TenantUpdateSNSLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  TenantConfigRepositoryFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref TenantConfigRepositoryLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+  TenantRESTFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref TenantRESTLogGroup
+      FilterPattern: ""
+      DestinationArn:
+        Fn::ImportValue: !Sub ${Env}-datadog-platform-DatadogForwarderArn
+
+
+Outputs:
+  RegisterSNSTopicArn:
+    Value: !Ref RegisterSNSTopic
+    Export:
+      Name: !Sub ${Env}-RegisterSNSTopicArn
+  UpdateSNSTopicArn:
+    Value: !Ref UpdateSNSTopic
+    Export:
+      Name: !Sub ${Env}-UpdateSNSTopicArn
+  UpdatedSNSTopicArn:
+    Value: !Ref UpdatedSNSTopic
+    Export:
+      Name: !Sub ${Env}-UpdatedSNSTopicArn
+  GenerateSNSTopicArn:
+    Value: !Ref GenerateSNSTopic
+    Export:
+      Name: !Sub ${Env}-GenerateSNSTopicArn
+  RegisteredSNSTopicArn:
+    Value: !Ref RegisteredSNSTopic
+    Export:
+      Name: !Sub ${Env}-RegisteredSNSTopicArn
+  

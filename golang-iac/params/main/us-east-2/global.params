@@ -1,0 +1,5 @@
+RegionActingAs: master
+
+RoleArn: arn:aws:iam::597609335369:role/CrossAccountDevOpsRole
+SSHKey: support
+# SecondaryRegions: "us-east-1","ap-southeast-2"

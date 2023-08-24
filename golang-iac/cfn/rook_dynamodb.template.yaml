@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name (main/staging/test or some other unique id)
+    Type: String
+  DynamoBackup:
+    Type: String
+    Default: true
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+  RookDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: policyNumber
+        AttributeType: S
+      - AttributeName: uid
+        AttributeType: S
+      KeySchema:
+      - AttributeName: policyNumber
+        KeyType: HASH
+      - AttributeName: uid
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - documents-rook
+        - !Sub "${Env}.documents-rook"
+      GlobalSecondaryIndexes:
+        - IndexName: uid-index
+          KeySchema: 
+          - AttributeName: uid
+            KeyType: HASH          
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: ALL
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  RookTemplateDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: product
+        AttributeType: S
+      - AttributeName: name
+        AttributeType: S
+      KeySchema:
+      - AttributeName: product
+        KeyType: HASH
+      - AttributeName: name
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - templates-rook
+        - !Sub "${Env}.templates-rook"
+      GlobalSecondaryIndexes:
+        - IndexName: name-index
+          KeySchema: 
+          - AttributeName: name
+            KeyType: HASH          
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: ALL
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  RookRenderDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: policyNumber
+          AttributeType: S
+        - AttributeName: correlationID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: policyNumber
+          KeyType: HASH
+        - AttributeName: correlationID
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        Fn::If:
+        - Prod
+        - render-rook
+        - !Sub "${Env}.render-rook"
+      GlobalSecondaryIndexes:
+        - IndexName: correlationID-index
+          KeySchema: 
+          - AttributeName: correlationID
+            KeyType: HASH          
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: ALL
+        - IndexName: correlationID-index
+          KeySchema: 
+          - AttributeName: correlationID
+            KeyType: HASH          
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: ALL
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env

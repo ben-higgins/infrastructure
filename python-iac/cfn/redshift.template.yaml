@@ -1,0 +1,526 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template to create Amazon Redshift Cluster'
+
+Parameters:
+  Name:
+    Type: String
+    Description: Name references build template for automation
+  Region:
+    Type: String
+  Bucket:
+    Type: String
+    Default: reptrak-deployment
+  DeployBucketPrefix:
+    Type: String
+    Default: ""
+  ParentVPCStack:
+    Description: 'VPC Stack Name'
+    Type: String
+    MinLength: '1'
+    MaxLength: '128'
+    AllowedPattern: '^[a-zA-Z]+[0-9a-zA-Z\-]*$'
+
+  DatabaseName:
+    Description: The name of the first database to be created when the cluster is created.
+    Type: String
+    Default: rsdev01
+    AllowedPattern: '([a-z]|[0-9])+'
+
+  NumberOfNodes:
+    Description: >-
+      The number of compute nodes in the cluster. For multi-node clusters, the NumberOfNodes parameter must be greater than 1.
+    Type: Number
+    Default: '1'
+
+  NodeType:
+    Description: The type of node to be provisioned
+    Type: String
+    Default: dc2.large
+    AllowedValues:
+      - dc2.large
+      - dc2.8xlarge
+      - ds2.xlarge
+      - ds2.8xlarge
+
+  Maintenancewindow:
+    Description: Maintenance Window for Redshift Cluster
+    Type: String
+    Default: 'sat:05:00-sat:05:30'
+
+  MaxConcurrentCluster:
+    Description: The maximum number of concurrency scaling Redshift clusters.
+    Type: String
+    Default: '1'
+
+  SnapshotIdentifier:
+    Description: The Redshift snapshot identifier. Leave this blank for a new cluster.
+    Default: ''
+    Type: String
+
+  SnapshotAccountNumber:
+    Description: The AWS account number where the Redshift snapshot was created.
+    Default: '663946581577'
+    Type: String
+
+  TagName:
+    Type: String
+    Description: The unique friendly name
+    Default: 'redshift'
+
+  RedshiftReadOnlyUserGroups:
+    Type: String
+    Default: 'read_only'
+
+  RedshiftMediaUserGroups:
+    Type: String
+    Default: 'read_only'
+
+  RedshiftDataScienceUserGroups:
+    Type: String
+    Default: 'read_only'
+
+  RedshiftDBEngUserGroups:
+    Type: String
+    Default: 'read_only'
+
+  RedshiftDeploymentAutomationUserGroups:
+    Type: String
+    Default: 'read_only'
+
+
+Conditions:
+
+  RedshiftSingleNodeClusterCondition:
+    Fn::Equals:
+    - Ref: NumberOfNodes
+    - '1'
+  IsSnapshotSpecified:
+    Fn::Not:
+    - Fn::Equals:
+      - ''
+      - Ref: SnapshotIdentifier
+  IsSnapshotAccountSpecified:
+    Fn::Not:
+    - Fn::Equals:
+      - ''
+      - Ref: SnapshotAccountNumber
+
+Resources:
+
+  RedshiftMaster:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${Name}/redshift'
+      Description: 'This is the secret for Redshift instance'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True # avoid random error with \
+
+  secretRedshiftInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RedshiftMaster
+      TargetId: !Ref RedshiftCluster
+      TargetType: AWS::Redshift::Cluster
+
+  RedshiftReadOnlyUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'database/redshift/${AWS::StackName}/readonly'
+      Description: 'Airflow Operational User'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "airflow_read_only", "groups":"${RedshiftReadOnlyUserGroups}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True
+      Tags:
+        - Key: user-type
+          Value: operational-user
+
+  RedshiftMediaUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'database/redshift/${AWS::StackName}/media'
+      Description: 'Airflow Operational User'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "airflow_media", "groups":"${RedshiftMediaUserGroups}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True
+      Tags:
+        - Key: user-type
+          Value: operational-user
+
+  RedshiftDataScienceUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'database/redshift/${AWS::StackName}/datascience'
+      Description: 'Airflow Operational User'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "airflow_datascience", "groups":"${RedshiftDataScienceUserGroups}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True
+      Tags:
+        - Key: user-type
+          Value: operational-user
+
+  RedshiftDBEngUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'database/redshift/${AWS::StackName}/dbeng'
+      Description: 'Airflow Operational User'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "airflow_dbeng", "groups":"${RedshiftDBEngUserGroups}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True
+      Tags:
+        - Key: user-type
+          Value: operational-user
+
+  RedshiftDeploymentAutomationUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'database/redshift/${AWS::StackName}/deployment_automation'
+      Description: 'Airflow Operational User'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "deployment_automation", "groups":"${RedshiftDeploymentAutomationUserGroups}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: True
+      Tags:
+        - Key: user-type
+          Value: operational-user
+
+  MediaRedshiftSpectrumIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - redshift.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutAnalyticsConfiguration
+                  - s3:PutAccelerateConfiguration
+                  - s3:DeleteObjectVersion
+                  - s3:RestoreObject
+                  - s3:CreateBucket
+                  - s3:ListBucket
+                  - s3:ReplicateObject
+                  - s3:PutEncryptionConfiguration
+                  - s3:DeleteBucketWebsite
+                  - s3:AbortMultipartUpload
+                  - s3:PutLifecycleConfiguration
+                  - s3:DeleteObject
+                  - s3:DeleteBucket
+                  - s3:PutBucketVersioning
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutMetricsConfiguration
+                  - s3:PutReplicationConfiguration
+                  - s3:PutObjectLegalHold
+                  - s3:PutBucketCORS
+                  - s3:PutInventoryConfiguration
+                  - s3:ListMultipartUploadParts
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:PutBucketNotification
+                  - s3:PutBucketWebsite
+                  - s3:PutBucketRequestPayment
+                  - s3:PutObjectRetention
+                  - s3:PutBucketLogging
+                  - s3:PutBucketObjectLockConfiguration
+                  - s3:GetBucketLocation
+                  - s3:ReplicateDelete
+                Resource:
+                  - arn:aws:s3:::ri-media-spectrum/*
+                  - arn:aws:s3:::ri-media-spectrum
+                  - arn:aws:s3:::media-search-tool-enriched
+              - Effect: Allow
+                Action:
+                  - glue:BatchCreatePartition
+                  - glue:UpdateDatabase
+                  - glue:CreateTable
+                  - glue:DeleteDatabase
+                  - glue:GetTables
+                  - glue:GetPartitions
+                  - glue:BatchDeletePartition
+                  - glue:UpdateTable
+                  - glue:BatchGetPartition
+                  - glue:DeleteTable
+                  - glue:GetDatabases
+                  - glue:GetTable
+                  - glue:GetDatabase
+                  - glue:GetPartition
+                  - glue:CreateDatabase
+                  - glue:BatchDeleteTable
+                  - glue:CreatePartition
+                  - s3:CreateJob
+                  - glue:DeletePartition
+                  - glue:UpdatePartition
+                Resource: "*"
+
+
+  RedshiftCopyUnloadIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - redshift.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonDMSRedshiftS3Role
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  RedshiftSpectrumReptrakIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - redshift.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListMultipartUploadParts
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                Resource:
+                  - arn:aws:s3:::ri-media-research
+                  - arn:aws:s3:::ri-media-research/onclusive/*
+                  - arn:aws:s3:::ri-mrt-dev/poc/onclusive_fulltext/*
+                  - arn:aws:s3:::ri-mrt-dev
+              - Effect: Allow
+                Action:
+                  - glue:CreateDatabase
+                  - glue:DeleteDatabase
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:UpdateDatabase
+                  - glue:CreateTable
+                  - glue:DeleteTable
+                  - glue:BatchDeleteTable
+                  - glue:UpdateTable
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:BatchCreatePartition
+                  - glue:CreatePartition
+                  - glue:DeletePartition
+                  - glue:BatchDeletePartition
+                  - glue:UpdatePartition
+                  - glue:GetPartition
+                  - glue:GetPartitions
+                  - glue:BatchGetPartition
+                Resource:
+                  - "*"
+
+  RedshiftSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - Redshift Security Group" ] ]
+      VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcID'}
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcCidr'}
+          Description: 'VPC access'
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: 10.13.0.0/21
+          Description: 'us-east-1 tools vpc'
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: 10.12.24.0/21
+          Description: 'eu-west-1 tools/vpn vpc'
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: 10.12.16.0/21
+          Description: 'engineering vpc'
+      Tags:
+        -
+          Key: Name
+          Value: !Join
+                 - '_'
+                 - - !Ref TagName
+                   - !Sub '${AWS::StackName}-RedshiftSecurityGroup'
+
+  RedshiftClusterParameterGroup:
+    Type: 'AWS::Redshift::ClusterParameterGroup'
+    Properties:
+      Description: !Join [ " ", [ !Ref 'AWS::StackName', " - Redshift Cluster Parameter group" ]]
+      ParameterGroupFamily: redshift-1.0
+      Parameters:
+        - ParameterName: enable_user_activity_logging
+          ParameterValue: 'true'
+        - ParameterName: require_ssl
+          ParameterValue: 'true'
+        - ParameterName: auto_analyze
+          ParameterValue: 'true'
+        - ParameterName: statement_timeout
+          ParameterValue: '43200000'
+        - ParameterName: max_concurrency_scaling_clusters
+          ParameterValue: !Ref MaxConcurrentCluster
+        - ParameterName: "wlm_json_configuration"
+          ParameterValue: "[ {\"query_group\" : [ ], \"query_group_wild_card\" : 0, \"user_group\" : [ ], \"user_group_wild_card\" : 0, \"concurrency_scaling\" : \"auto\", \"rules\" : [ { \"rule_name\" : \"DiskSpilling\", \"predicate\" : [ { \"metric_name\" : \"query_temp_blocks_to_disk\", \"operator\" : \">\",  \"value\" : 100000} ], \"action\" : \"log\", \"value\" : \"\"}, { \"rule_name\" : \"RowJoining\", \"predicate\" : [ { \"metric_name\" : \"join_row_count\", \"operator\" : \">\", \"value\" : 1000000000 } ], \"action\" : \"log\", \"value\" : \"\" } ], \"auto_wlm\" : true}, {\"short_query_queue\" : true} ]"
+      Tags:
+        -
+          Key: Name
+          Value: !Join [ "-", [ !Ref TagName, !Ref 'AWS::StackName', "Primary Cluster Parameter group" ] ]
+
+  RedshiftClusterSubnetGroup:
+    Type: 'AWS::Redshift::ClusterSubnetGroup'
+    Properties:
+      Description: Cluster subnet group
+      SubnetIds: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-PrivateSubnetGroup'}]
+      Tags:
+        -
+          Key: Name
+          Value: !Join [ "-", [ !Ref TagName, !Ref 'AWS::StackName', "Primary Redshift PublicCluster Subnet group" ] ]
+
+  RedshiftCluster:
+    Type: 'AWS::Redshift::Cluster'
+    DependsOn:
+      - RedshiftMaster
+      - MediaRedshiftSpectrumIAMRole
+      - RedshiftCopyUnloadIAMRole
+      - RedshiftSpectrumReptrakIAMRole
+      - RedshiftSecurityGroup
+      - RedshiftClusterParameterGroup
+      - RedshiftClusterSubnetGroup
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      ClusterType: !If [RedshiftSingleNodeClusterCondition, "single-node", "multi-node"]
+#      ClusterIdentifier: !Join ["-", [!Ref DatabaseName, !Ref 'AWS::StackName']] # This throw a error when you try to update an environment https://aws.amazon.com/premiumsupport/knowledge-center/cloudformation-custom-name/
+      NumberOfNodes: !If [RedshiftSingleNodeClusterCondition, !Ref "AWS::NoValue", !Ref NumberOfNodes]
+      NodeType: !Ref NodeType
+      DBName: !Ref DatabaseName
+      Port: 5439
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RedshiftMaster, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RedshiftMaster, ':SecretString:password}}' ]]
+      ClusterParameterGroupName: !Ref RedshiftClusterParameterGroup
+      SnapshotIdentifier: !If [IsSnapshotSpecified, !Ref SnapshotIdentifier, !Ref "AWS::NoValue"]
+      ManualSnapshotRetentionPeriod: 30
+      SnapshotCopyRetentionPeriod: 30
+      AutomatedSnapshotRetentionPeriod: 30
+      OwnerAccount: !If [IsSnapshotAccountSpecified, !Ref SnapshotAccountNumber, !Ref "AWS::NoValue"]
+      VpcSecurityGroupIds:
+        - !Ref RedshiftSecurityGroup
+      PreferredMaintenanceWindow: !Ref Maintenancewindow
+      PubliclyAccessible: 'false'
+      ClusterSubnetGroupName: !Ref RedshiftClusterSubnetGroup
+      IamRoles:
+        - !GetAtt [ MediaRedshiftSpectrumIAMRole, Arn ]
+        - !GetAtt [ RedshiftCopyUnloadIAMRole, Arn ]
+        - !GetAtt [ RedshiftSpectrumReptrakIAMRole, Arn ]
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref Name
+
+Outputs:
+
+  StackName:
+    Description: 'Stack name'
+    Value: !Sub '${AWS::StackName}'
+
+  RedshiftClusterEndpoint:
+    Description: Redshift Cluster endpoint
+    Value: !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}"
+    Export:
+      Name: !Sub '${AWS::StackName}-RedshiftClusterEndpoint'
+
+  PSQLCommandLine:
+    Description: PSQL Command Line
+    Value: !Join
+             - ''
+             - - 'psql -h '
+               - !GetAtt 'RedshiftCluster.Endpoint.Address'
+               - ' -p '
+               - !GetAtt 'RedshiftCluster.Endpoint.Port'
+               - ' -U '
+               - rsadmin
+               - ' -d '
+               - !Ref DatabaseName
+
+  RedshiftParameterGroupName:
+    Description: Name of the Redshift Parameter Group
+    Value: !Ref RedshiftClusterParameterGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-RedshiftParameterGroupName'
+
+  ClusterName:
+    Description: Name of cluster
+    Value:
+      Ref: RedshiftCluster
+
+  ClusterNameCustom:
+    Description: Name of cluster
+    Value: !Join ["-", [!Ref DatabaseName, !Ref 'AWS::StackName']]
+
+  RedshiftMasterUser:
+    Value: !Ref RedshiftMaster
+
+  RedshiftReadOnlyUser:
+    Value: !Ref RedshiftReadOnlyUser
+
+  RedshiftMediaUser:
+    Value: !Ref RedshiftMediaUser
+
+  RedshiftDataScienceUser:
+    Value: !Ref RedshiftDataScienceUser
+
+  RedshiftDBEngUser:
+    Value: !Ref RedshiftDBEngUser
+
+  RedshiftDeploymentAutomationUser:
+    Value: !Ref RedshiftDeploymentAutomationUser
+
+  MediaRedshiftSpectrumIAMRole:
+    Value: !GetAtt [ MediaRedshiftSpectrumIAMRole, Arn ]
+
+  RedshiftCopyUnloadIAMRole:
+    Value: !GetAtt [ RedshiftCopyUnloadIAMRole, Arn ]
+
+  RedshiftSpectrumReptrakIAMRole:
+    Value: !GetAtt [ RedshiftSpectrumReptrakIAMRole, Arn ]

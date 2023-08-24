@@ -1,0 +1,783 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Elastic Kubernetes Template
+Parameters:
+  Name:
+    Type: String
+  ParentVPCStack:
+    Type: String
+  EnvType:
+    Type: String
+  Region:
+    Type: String
+  VPNCidr:
+    Type: String
+  SSHKey:
+    Type: AWS::EC2::KeyPair::KeyName
+  ClusterMinSize:
+    Type: Number
+  ClusterMaxSize:
+    Type: Number
+  ClusterDesiredSize:
+    Type: Number
+  ClusterSpotMinSize:
+    Type: Number
+  ClusterSpotMaxSize:
+    Type: Number
+  ClusterSpotDesiredSize:
+    Type: Number
+  ClusterSpotGpuMinSize:
+    Type: Number
+  ClusterSpotGpuMaxSize:
+    Type: Number
+  ClusterSpotGpuDesiredSize:
+    Type: Number
+  EksVersion:
+    Type: String
+    AllowedValues: ["1.21", "1.22", "1.23", "1.24"]
+    Default: "1.23"
+
+Resources:
+
+  EksServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+
+  EksSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - Redshift Security Group" ] ]
+      VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcID'}
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref VPNCidr
+          Description: 'SSH access'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref VPNCidr
+          Description: 'Reptrak Office IP'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcCidr'}
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          CidrIp: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcCidr'}
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcCidr'}
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VpcCidr'}
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-EksSecurityGroup'
+
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref AWS::StackName
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref EksSecurityGroup
+        SubnetIds: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-PublicSubnetGroup'}]
+      RoleArn: !GetAtt EksServiceRole.Arn
+      Version: !Ref EksVersion
+    DependsOn:
+      - EksServiceRole
+      - EksSecurityGroup
+
+  EKSNodeIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - eks:ListClusters
+            - eks:ListNodegroups
+            - eks:DescribeNodegroup
+            Effect: Allow
+            Resource: "*"
+
+  NodeInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:  # Default quota is 10 policy per IAM Role, we have got that increased to 15 using AWS Service Quotas
+        - !Ref EKSNodeIAMPolicy
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaRole"
+        - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+        - "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/AWSWAFFullAccess"
+        - "arn:aws:iam::aws:policy/AWSCertificateManagerReadOnly"
+        - "arn:aws:iam::aws:policy/AWSCloudFormationReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
+      Path: /
+
+
+  OnDemandNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref AWS::StackName
+      ForceUpdateEnabled: true
+      NodegroupName: OnDemand
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      RemoteAccess:
+        Ec2SshKey: !Ref SSHKey
+        SourceSecurityGroups:
+          - !Ref EksSecurityGroup
+      ScalingConfig:
+        MinSize: !Ref ClusterMinSize
+        DesiredSize: !Ref ClusterDesiredSize
+        MaxSize: !Ref ClusterMaxSize
+      Subnets: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-PublicSubnetGroup'}]
+      Labels:
+        role: general
+        clusterName: !Ref AWS::StackName
+      DiskSize: 100
+    DependsOn:
+      - EksCluster
+      - NodeInstanceRole
+      - EksSecurityGroup
+
+  SpotNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      CapacityType: SPOT
+      ClusterName: !Ref AWS::StackName
+      InstanceTypes:
+        - t3.medium
+        - t3a.medium
+      NodegroupName: Spot
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      RemoteAccess:
+        Ec2SshKey: !Ref SSHKey
+        SourceSecurityGroups:
+          - !Ref EksSecurityGroup
+      ScalingConfig:
+        MinSize: !Ref ClusterSpotMinSize
+        DesiredSize: !Ref ClusterSpotDesiredSize
+        MaxSize: !Ref ClusterSpotMaxSize
+      Subnets: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-PublicSubnetGroup'}]
+      Taints:
+        - Effect: PREFER_NO_SCHEDULE
+          Key: SpotInstance
+          Value: "true"
+      Labels:
+        role: spot
+        clusterName: !Ref AWS::StackName
+      DiskSize: 100
+    DependsOn:
+      - EksCluster
+      - NodeInstanceRole
+      - EksSecurityGroup
+
+  SpotGpuNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      CapacityType: SPOT
+      AmiType: AL2_x86_64_GPU
+      ClusterName: !Ref AWS::StackName
+      InstanceTypes:
+        - g4dn.xlarge
+        - g4dn.2xlarge
+      NodegroupName: SpotGpu
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      RemoteAccess:
+        Ec2SshKey: !Ref SSHKey
+        SourceSecurityGroups:
+          - !Ref EksSecurityGroup
+      ScalingConfig:
+        MinSize: !Ref ClusterSpotGpuMinSize
+        DesiredSize: !Ref ClusterSpotGpuDesiredSize
+        MaxSize: !Ref ClusterSpotGpuMaxSize
+      Subnets: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-PublicSubnetGroup'}]
+      Tags:
+        k8s.io/cluster-autoscaler/node-template/label/nvidia.com/gpu: 'true'
+        k8s.io/cluster-autoscaler/node-template/taint/dedicated: nvidia.com/gpu=true
+      Labels:
+        nvidia.com/gpu: 'true'
+        role: gpu
+        clusterName: !Ref AWS::StackName
+      Taints:
+        - Effect: NO_EXECUTE
+          Key: nvidia.com/gpu
+          Value: "true"
+      DiskSize: 100
+    DependsOn:
+      - EksCluster
+      - NodeInstanceRole
+      - EksSecurityGroup
+
+
+  EksAccessUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub '${AWS::StackName}-cluster-access'
+      Policies:
+        - PolicyName: !Sub '${AWS::StackName}-AmazonEKSWorkerNodePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeVolumesModifications
+                  - ec2:DescribeVpcs
+                  - eks:DescribeCluster
+                Resource: "*"
+                Effect: Allow
+
+
+  EKSAccessUserKeys:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: EksAccessUser
+
+  EksClusterSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'This is the secret for EKS Cluster user Access Key and Secret Key'
+      Name: !Sub ${Name}/eks-cluster
+      SecretString: !Join
+        - ''
+        - - '{'
+          - '"AccessKey"'
+          - ': "'
+          - !Ref EKSAccessUserKeys
+          - '"'
+          - ', '
+          - '"AccessSecret"'
+          - ': "'
+          - !GetAtt EKSAccessUserKeys.SecretAccessKey
+          - '"'
+          - '}'
+    DependsOn:
+      - EKSAccessUserKeys
+
+  EksSpotNodeGroupASGNamesLambdaIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - eks:ListClusters
+            - eks:DescribeCluster
+            - eks:ListNodegroups
+            - eks:DescribeNodegroup
+            Effect: Allow
+            Resource: "*"
+
+  EksSpotNodeGroupASGNamesLambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EksSpotNodeGroupASGNamesLambdaIAMPolicy
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AWSCloudFormationReadOnlyAccess"
+
+
+  EksSpotNodeGroupASGNamesLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import os
+          import cfnresponse
+
+          def get_nodegroup_asg(region, clusterName, NodeGroup):
+              eksclient = boto3.client('eks', region)
+
+              describe_response = eksclient.describe_nodegroup(
+                  clusterName=clusterName,
+                  nodegroupName=NodeGroup
+              )
+              asg_name = describe_response["nodegroup"]["resources"]["autoScalingGroups"][0]["name"]
+              return asg_name
+
+          def lambda_handler(event, context):
+              environment = os.environ['envName']
+              region = os.environ['AWS_REGION']
+              clusterName = os.environ['clusterName']
+              spotNodeGroup = os.environ['SpotNodeGroup'].split("/")[1]
+              spotGpuNodeGroup = os.environ['SpotGpuNodeGroup'].split("/")[1]
+
+              print(f"For env {environment} in region {region}, cluster {clusterName} has spot node group {spotNodeGroup} and spot gpu node group {spotGpuNodeGroup}")
+
+              spotNodeGroupAsg = get_nodegroup_asg(region, clusterName, spotNodeGroup)
+              spotGpuNodeGroupAsg = get_nodegroup_asg(region, clusterName, spotGpuNodeGroup)
+
+              responseData = {}
+              responseData['spotNodeGroupAsg'] = spotNodeGroupAsg
+              responseData['spotGpuNodeGroupAsg'] = spotGpuNodeGroupAsg
+              cfnresponse.send(event, context, cfnresponse.SUCCESS,responseData, {})
+      Description: 'Lambda that will trigger Cloudformation'
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt EksSpotNodeGroupASGNamesLambdaIAMRole.Arn
+      Runtime: python3.9
+      Environment:
+        Variables:
+          envName: !Ref EnvType
+          Region: !Ref Region
+          clusterName: !Ref EksCluster
+          SpotNodeGroup: !Ref SpotNodeGroup
+          SpotGpuNodeGroup: !Ref SpotGpuNodeGroup
+      Timeout: 300
+    DependsOn:
+      - EksCluster
+      - EksSpotNodeGroupASGNamesLambdaIAMRole
+
+  EksSpotNodeGroupNames:
+    Type: AWS::CloudFormation::CustomResource
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt EksSpotNodeGroupASGNamesLambda.Arn
+
+  EksChangeSpotBaseCapacityLambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AWSCloudFormationReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AutoScalingFullAccess"
+
+  EksUpgradeSpotBaseCapacityLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import os
+
+          def get_asg_ondemand_base_capacity(region, asgName):
+              try:
+                  asg_client = boto3.client('autoscaling', region)
+                  response = asg_client.describe_auto_scaling_groups(
+                      AutoScalingGroupNames=[
+                          asgName,
+                      ]
+                  )
+                  return response["AutoScalingGroups"][0]["MixedInstancesPolicy"]["InstancesDistribution"]["OnDemandBaseCapacity"]
+              except:
+                  raise Exception(f"Unable to get OnDemand base capacity of {asgName}")
+
+          def upgrade_asg_ondemand_base_capacity(region, asgName, capacity):
+              try:
+                  asg_client = boto3.client('autoscaling', region)
+                  response = asg_client.update_auto_scaling_group(
+                      AutoScalingGroupName=asgName,
+                      MixedInstancesPolicy={
+                          'InstancesDistribution': {
+                              'OnDemandBaseCapacity': capacity,
+                          }
+                      }
+                  )
+                  return response
+              except:
+                  raise Exception(f"Unable to get OnDemand base capacity of {asgName}")
+
+          def update_node_group(region, asgName):
+              asg_base_capacity = 1
+              ondemain_base_capacity = get_asg_ondemand_base_capacity(region, asgName)
+              print(f"Current OnDemand Base Capacity of ASG {asgName} is {ondemain_base_capacity}")
+
+              print(f"Upgrading OnDemand Base Capacity")
+              upgrade_asg_ondemand_base_capacity(region, asgName, asg_base_capacity)
+
+              ondemain_base_capacity = get_asg_ondemand_base_capacity(region, asgName)
+              print(f"New OnDemand Base Capacity of ASG {asgName} is {ondemain_base_capacity}")
+
+          def lambda_handler(event, context):
+              print(f"Event is: {event}")
+
+              region = os.environ['AWS_REGION']
+              asgName = event["detail"]["AutoScalingGroupName"]
+
+              print(f"Event Reason: {event['detail']['StatusMessage']}")
+              update_node_group(region, asgName)
+      Description: 'Lambda that will trigger Cloudformation'
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt EksChangeSpotBaseCapacityLambdaIAMRole.Arn
+      Runtime: python3.9
+      Environment:
+        Variables:
+          Region: !Ref Region
+      Timeout: 300
+    DependsOn:
+      - EksCluster
+      - EksSpotNodeGroupASGNamesLambda
+      - EksChangeSpotBaseCapacityLambdaIAMRole
+
+  EksDowngradeSpotBaseCapacityLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import os
+
+          def get_asg_ondemand_base_capacity(region, asgName):
+              try:
+                  asg_client = boto3.client('autoscaling', region)
+                  response = asg_client.describe_auto_scaling_groups(
+                      AutoScalingGroupNames=[
+                          asgName,
+                      ]
+                  )
+                  return response["AutoScalingGroups"][0]["MixedInstancesPolicy"]["InstancesDistribution"]["OnDemandBaseCapacity"]
+              except:
+                  raise Exception(f"Unable to get OnDemand base capacity of {asgName}")
+
+          def downgrade_asg_ondemand_base_capacity(region, asgName, capacity):
+              try:
+                  asg_client = boto3.client('autoscaling', region)
+                  response = asg_client.update_auto_scaling_group(
+                      AutoScalingGroupName=asgName,
+                      MixedInstancesPolicy={
+                          'InstancesDistribution': {
+                              'OnDemandBaseCapacity': capacity,
+                          }
+                      }
+                  )
+                  return response
+              except:
+                  raise Exception(f"Unable to get OnDemand base capacity of {asgName}")
+
+          def update_node_group(region, asgName):
+              asg_base_capacity = 0
+              ondemain_base_capacity = get_asg_ondemand_base_capacity(region, asgName)
+              print(f"Current OnDemand Base Capacity of ASG {asgName} is {ondemain_base_capacity}")
+
+              print(f"Downgrading OnDemand Base Capacity")
+              downgrade_asg_ondemand_base_capacity(region, asgName, asg_base_capacity)
+
+              ondemain_base_capacity = get_asg_ondemand_base_capacity(region, asgName)
+              print(f"New OnDemand Base Capacity of ASG {asgName} is {ondemain_base_capacity}")
+
+          def lambda_handler(event, context):
+              print(f"Event is: {event}")
+
+              region = os.environ['AWS_REGION']
+              asgName = event["detail"]["AutoScalingGroupName"]
+
+              update_node_group(region, asgName)
+      Description: 'Lambda that will trigger Cloudformation'
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt EksChangeSpotBaseCapacityLambdaIAMRole.Arn
+      Runtime: python3.9
+      Environment:
+        Variables:
+          Region: !Ref Region
+      Timeout: 300
+    DependsOn:
+      - EksCluster
+      - EksSpotNodeGroupASGNamesLambda
+      - EksChangeSpotBaseCapacityLambdaIAMRole
+
+
+  StateMachineIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref EksUpgradeSpotBaseCapacityLambda
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref EksUpgradeSpotBaseCapacityLambda
+                - ":*"
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref EksDowngradeSpotBaseCapacityLambda
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref EksDowngradeSpotBaseCapacityLambda
+                - ":*"
+
+  StateMachineIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - states.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref StateMachineIAMPolicy
+
+  ChangeSpotGroupBaseCapacityStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      RoleArn: !GetAtt StateMachineIAMRole.Arn
+      DefinitionString: !Sub |-
+        {
+          "StartAt": "Upgrade-ASG",
+          "States": {
+            "Upgrade-ASG": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "ResultPath": "$.taskresult",
+              "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "${EksUpgradeSpotBaseCapacityLambda}:$LATEST"
+              },
+              "Next": "Wait",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "BackoffRate": 2,
+                  "IntervalSeconds": 60,
+                  "MaxAttempts": 3
+                }
+              ]
+            },
+            "Wait": {
+              "Type": "Wait",
+              "Seconds": 10800,
+              "Next": "Downgrade-ASG"
+            },
+            "Downgrade-ASG": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "ResultPath": "$.taskresult",
+              "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "${EksDowngradeSpotBaseCapacityLambda}:$LATEST"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "IntervalSeconds": 60,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+
+      DefinitionSubstitutions:
+        Function: !GetAtt EksUpgradeSpotBaseCapacityLambda.Arn
+        Function: !GetAtt EksDowngradeSpotBaseCapacityLambda.Arn
+    DependsOn:
+      - EksCluster
+      - EksSpotNodeGroupASGNamesLambda
+
+  EventBridgeIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - states:StartExecution
+            Effect: Allow
+            Resource:
+              - !Ref "ChangeSpotGroupBaseCapacityStateMachine"
+
+  EventBridgeIAMrole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - events.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EventBridgeIAMPolicy
+
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Change EKS Spot node group base capacity"
+      EventPattern:
+        source:
+          - "aws.autoscaling"
+        detail-type:
+          - "EC2 Instance Launch Unsuccessful"
+        detail:
+          AutoScalingGroupName:
+            - !GetAtt EksSpotNodeGroupNames.spotNodeGroupAsg
+            - !GetAtt EksSpotNodeGroupNames.spotGpuNodeGroupAsg
+      State: "ENABLED"
+      Targets:
+        -
+          Arn:
+            Fn::GetAtt:
+              - "ChangeSpotGroupBaseCapacityStateMachine"
+              - "Arn"
+          Id: "ChangeSpotGroupBaseCapacityStateMachine"
+          RoleArn: !GetAtt
+            - EventBridgeIAMrole
+            - Arn
+    DependsOn:
+      - EksCluster
+      - EksSpotNodeGroupASGNamesLambda
+
+
+Outputs:
+  StackName:
+    Value: !Ref AWS::StackName
+  EksClusterName:
+    Value: !Ref EksCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-EksClusterName
+  EksClusterEndpoint:
+    Value: !GetAtt EksCluster.Endpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-EksEndpoint
+  EksClusterArn:
+    Value: !GetAtt EksCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EksArn
+  EksClusterSGId:
+    Value: !GetAtt EksCluster.ClusterSecurityGroupId
+    Export:
+      Name: !Sub ${AWS::StackName}-EksClusterSGId
+  EksNodeInstanceRole:
+    Value: !GetAtt NodeInstanceRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EksNodeInstanceRole
+  Region:
+    Description: Stack location
+    Value: !Ref AWS::Region
+  AccessKey:
+    Value: !Ref EKSAccessUserKeys
+  AccessSecret:
+    Value: !GetAtt EKSAccessUserKeys.SecretAccessKey
+  EKSConfig:
+    Value: !Sub aws eks --region ${AWS::Region} update-kubeconfig --name ${EksCluster}
+  EKSUserArn:
+    Value: !GetAtt EksAccessUser.Arn
+  EKSUserName:
+    Value: !Ref EksAccessUser
+  EksSecurityGroup:
+    Value: !Ref EksSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-EksSecurityGroup
+  OnDemandNodeGroup:
+    Value: !Ref OnDemandNodeGroup
+  SpotNodeGroup:
+    Value: !Ref SpotNodeGroup
+  SpotGpuNodeGroup:
+    Value: !Ref SpotGpuNodeGroup
+  EksUpgradeSpotBaseCapacityLambdaARN:
+    Value: !GetAtt EksUpgradeSpotBaseCapacityLambda.Arn
+  EksDowngradeSpotBaseCapacityLambdaARN:
+    Value: !GetAtt EksDowngradeSpotBaseCapacityLambda.Arn
+  SpotNodeGroupAsg:
+    Value: !GetAtt EksSpotNodeGroupNames.spotNodeGroupAsg
+  SpotGPUNodeGroupAsg:
+    Value: !GetAtt EksSpotNodeGroupNames.spotGpuNodeGroupAsg

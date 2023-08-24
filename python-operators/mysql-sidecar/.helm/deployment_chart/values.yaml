@@ -1,0 +1,14 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+region: null
+
+container:
+  image: null
+
+serviceOverride: mysql-rds
+
+# In multi-region env, deploy the cron jobs in master region only. It's value is inject by infrastructure params
+RegionActingAs: ""

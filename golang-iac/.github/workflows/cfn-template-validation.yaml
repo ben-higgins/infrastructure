@@ -1,0 +1,27 @@
+name: validate-cfn-templates
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - TEST_NAME: "Latest v2"
+            AWS_CLI_VERSION: "2"
+    steps:
+      - name: validate ${{ matrix.TEST_NAME }} ${{ matrix.AWS_CLI_VERSION }}
+        id: install-aws-cli
+        uses: unfor19/install-aws-cli-action@master
+        with:
+          version: ${{ matrix.AWS_CLI_VERSION }}
+      
+      - run: |
+          # list all of the yaml files in ./cfn directory
+          for cfn in $( find ./ -name "Dockerfile" );
+          do
+            echo $cfn
+          done;
+        shell: bash

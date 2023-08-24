@@ -1,0 +1,79 @@
+#!/bin/bash
+
+STACK_NAME=$1
+Region=$2
+ACTION=$3   #grant or revoke
+
+# configure kubectl
+STACKNAME=$( ./bin/get-stack-name "${STACK_NAME}-Eks" $Region  )
+EKS_NAME=$( ./bin/get-key-value $STACKNAME $Region "EksClusterName" )
+NodeARN=$( ./bin/get-key-value $STACKNAME $Region "EksNodeInstanceRole" )
+
+aws eks --region ${Region} update-kubeconfig --name $EKS_NAME
+
+
+if [ "$ACTION" == 'grant' ]; then
+  userArn=$( aws iam create-user --user-name $STACKNAME-temp-user --output text | awk '{print $2}' )
+
+  aws iam attach-user-policy \
+    --user-name $STACKNAME-temp-user \
+    --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+
+  userKey=$( aws iam create-access-key --user-name $STACKNAME-temp-user --output json )
+
+# create yaml file
+cat > tempEksAccess.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: $NodeARN
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+  mapUsers: |
+    - userarn: $userArn
+      username: designated_user
+      groups:
+        - system:masters
+        -
+EOF
+
+  # add configMap
+  kubectl apply -f tempEksAccess.yaml
+
+  accessid=$( echo $userKey | jq .AccessKey.AccessKeyId | tr -d '"' )
+  accesskey=$( echo $userKey | jq .AccessKey.SecretAccessKey | tr -d '"' )
+
+  echo ""
+  echo "[default]"
+  echo "aws_access_key_id = $accessid"
+  echo "aws_secret_access_key = $accesskey"
+  echo ""
+  echo "aws eks --region ${Region} update-kubeconfig --name $EKS_NAME"
+  echo ""
+fi
+if [ "$ACTION" == 'revoke' ]; then
+  keys=$( aws iam list-access-keys --user-name $STACKNAME-temp-user --output text | awk '{print $2}' )
+
+  for key in $keys
+    do
+      aws iam delete-access-key --user-name $STACKNAME-temp-user --access-key-id $key
+    done
+
+    aws iam detach-user-policy \
+      --user-name $STACKNAME-temp-user \
+      --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+
+  aws iam delete-user --user-name $STACKNAME-temp-user
+
+  kubectl delete -f tempEksAccess.yaml
+
+fi
+
+
+

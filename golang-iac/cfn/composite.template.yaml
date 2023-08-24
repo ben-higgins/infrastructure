@@ -1,0 +1,675 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch all stacks from here
+Parameters:
+  DeployVPC:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployRedshift:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployEKS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployElasticache:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployWAF:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployMySQLRDS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployPGSQLRDS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployAuroraPostgres:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployAuroraMySQL:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDocumentDB:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDNSZone:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployCloudfront:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDatadogForwarder:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDynamoDBBackup:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+    
+  Name:
+    Type: String
+  Region:
+    Type: String
+  Bucket:
+    Type: String
+  DeployBucketPrefix:
+    Type: String
+  SSHKey:
+    Type: AWS::EC2::KeyPair::KeyName
+  ZoneName:
+    Type: String
+    Default: ""
+  SecretSrcRegion:
+    Type: String
+  SecretSrcEnvName:
+    Type: String
+  SkipSecrets:
+    Type: String
+  RoleArn:
+    Type: String
+
+  NumberOfAZs:
+    Type: Number
+    AllowedValues: [ "2","3" ]
+    Default: 2
+  EnableVPCTransit:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: false
+  TransitGatewayId:
+    Type: String
+    Default: blank
+  VpcCIDR:
+    Type: String
+  PublicSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 subnets
+  PrivateSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 Subnets
+  VPNCidr:
+    Type: String
+    Default: 10.12.24.0/21
+  SecondaryRegions:
+    Type: String
+    Default: ""
+
+  ClusterMinSize:
+    Type: Number
+    Default: 1
+  ClusterMaxSize:
+    Type: Number
+    Default: 3
+  ClusterDesiredSize:
+    Type: Number
+    Default: 1
+
+  ClusterSpotMinSize:
+    Type: Number
+    Default: 1
+  ClusterSpotMaxSize:
+    Type: Number
+    Default: 3
+  ClusterSpotDesiredSize:
+    Type: Number
+    Default: 1
+
+  ClusterSpotGpuMinSize:
+    Type: Number
+    Default: 0
+  ClusterSpotGpuMaxSize:
+    Type: Number
+    Default: 2
+  ClusterSpotGpuDesiredSize:
+    Type: Number
+    Default: 0
+
+  CacheNodeType:
+    Type: String
+    Default: cache.t2.micro
+  NumCacheNodes:
+    Type: Number
+    Default: 1
+
+  RedshiftCreateLatestSnapshot:
+    Type: String
+    Default: ""
+  RedshiftSrcClusterRegion:
+    Type: String
+    Default: ""
+  RedshiftRestoreSpecificSnapshot:
+    Type: String
+    Default: ""
+  RedshiftSnapshotId:
+    Type: String
+    Default: ""
+  NodeType:
+    Type: String
+    Default: ds2.xlarge
+  RedshiftReadOnlyUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftMediaUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDataScienceUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDBEngUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDeploymentAutomationUserGroups:
+    Type: String
+    Default: "read_only"
+
+  PGEngine:
+    Type: String
+    Default: ""
+  PGEngineVersion:
+    Type: String
+    Default: ""
+  PGEngineFamily:
+    Type: String
+    Default: ""
+  PGDBInstanceClass:
+    Type: String
+    Default: ""
+  PGDBAllocatedStorage:
+    Type: String
+    Default: 20
+  PGBackupRetentionPeriod:
+    Type: String
+    Default: 30
+  PGSQLMultiAZ:
+    Type: String
+    Default: false
+  DeployPGSQLReplica:
+    Type: String
+    AllowedValues: [ 'true','false' ]
+    Default: false
+
+  MySQLEngine:
+    Type: String
+    Default: ""
+  MySQLEngineVersion:
+    Type: String
+    Default: ""
+  MySQLEngineFamily:
+    Type: String
+    Default: ""
+  MySQLDBInstanceClass:
+    Type: String
+    Default: ""
+  MySQLDBAllocatedStorage:
+    Type: String
+    Default: ""
+  MySQLMultiAZ:
+    Type: String
+    Default: ""
+  MySQLBackupRetentionPeriod:
+    Type: String
+    Default: ""
+  DeployMySQLReplica:
+    Type: String
+    AllowedValues: [ 'true','false' ]
+    Default: false
+
+  RestoreSource:
+    Type: String
+    Default: ""
+    
+  DatadogApiKey:
+    Type: String
+    NoEcho: true 
+    Default: ""
+
+  GitTag:
+    Type: String
+    Default: ""
+  RegionActingAs:
+    Type: String
+    Default: ""
+
+  PowerBIInstanceType:
+    Type: String
+    Default: t3.medium
+
+
+Conditions:
+  CreateVPC: !Equals [ !Ref DeployVPC, true ]
+  CreateRedshift: !Equals [ !Ref DeployRedshift, true ]
+  CreateEKS: !Equals [ !Ref DeployEKS, true ]
+  CreateElasticache: !Equals [ !Ref DeployElasticache, true ]
+  CreateWAF: !Equals [ !Ref DeployWAF, true ]
+  CreateMySQLRDS: !Equals [ !Ref DeployMySQLRDS, true ]
+  CreatePGSQLRDS: !Equals [ !Ref DeployPGSQLRDS, true ]
+  CreateAuroraMySQL: !Equals [ !Ref DeployAuroraMySQL, true ]
+  CreateAuroraPostgres: !Equals [ !Ref DeployAuroraPostgres, true ]
+  CreateDNSZone: !Equals [ !Ref DeployDNSZone, true ]
+  CreateDocumentDB: !Equals [ !Ref DeployDocumentDB, true]
+  CreateMySQLReplica: !Equals [ !Ref DeployMySQLReplica, true]
+  CreatePGSQLReplica: !Equals [ !Ref DeployPGSQLReplica, true]
+  CreateCfLambda01: !Equals [ !Ref DeployCloudfront, true ]
+  CreateCfLambda02: !Equals [ !Ref RegionActingAs, "master"]
+  CreateCloudfrontLambda: !And
+    - !Condition CreateCfLambda01
+    - !Condition CreateCfLambda02
+  CreateDatadogForwarder: !Equals [ !Ref DeployDatadogForwarder, true ]
+  CreateBackupVault: !Equals [ !Ref DeployDynamoDBBackup, true ]
+
+
+Resources:
+  Vpc:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy VPC Stack
+    Condition: CreateVPC
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/vpc.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        Region: !Ref Region
+        Bucket: !Ref Bucket
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        SSHKey: !Ref SSHKey
+        EnableVPCTransit: !Ref EnableVPCTransit
+        TransitGatewayId: !Ref TransitGatewayId
+        VpcCIDR: !Ref VpcCIDR
+        PublicSubnets: !Join
+          - ","
+          - !Ref PublicSubnets
+        PrivateSubnets: !Join
+          - ","
+          - !Ref PrivateSubnets
+        NumberOfAZs: !Ref NumberOfAZs
+
+  DNSZone:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Redshift stack
+    Condition: CreateDNSZone
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/dns.template.yaml"
+      Parameters:
+        ZoneName: !Ref ZoneName
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        Name: !Ref Name
+
+  Redshift:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Redshift stack
+    Condition: CreateRedshift
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/redshift.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        Region: !Ref Region
+        Bucket: !Ref Bucket
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        SnapshotIdentifier: !Ref RedshiftSnapshotId
+        RedshiftReadOnlyUserGroups: !Ref RedshiftReadOnlyUserGroups
+        RedshiftMediaUserGroups: !Ref RedshiftMediaUserGroups
+        RedshiftDataScienceUserGroups: !Ref RedshiftDataScienceUserGroups
+        RedshiftDBEngUserGroups: !Ref RedshiftDBEngUserGroups
+        RedshiftDeploymentAutomationUserGroups: !Ref RedshiftDeploymentAutomationUserGroups
+
+  Eks:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Eks stack
+    Condition: CreateEKS
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/eks.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        Region: !Ref Region
+        SSHKey: !Ref SSHKey
+        VPNCidr: !Ref VPNCidr
+        ClusterMinSize: !Ref ClusterMinSize
+        ClusterMaxSize: !Ref ClusterMaxSize
+        ClusterDesiredSize: !Ref ClusterDesiredSize
+        ClusterSpotMinSize: !Ref ClusterSpotMinSize
+        ClusterSpotMaxSize: !Ref ClusterSpotMaxSize
+        ClusterSpotDesiredSize: !Ref ClusterSpotGpuDesiredSize
+        ClusterSpotGpuMinSize: !Ref ClusterSpotGpuMinSize
+        ClusterSpotGpuMaxSize: !Ref ClusterSpotGpuMaxSize
+        ClusterSpotGpuDesiredSize: !Ref ClusterSpotGpuDesiredSize
+
+  Elasticache:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Elasticache stack
+    Condition: CreateElasticache
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/elasticache.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        SSHKey: !Ref SSHKey
+        CidrIp: !GetAtt [Vpc, Outputs.VpcCidr]
+        CacheNodeType: !Ref CacheNodeType
+        NumCacheNodes: !Ref NumCacheNodes
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PublicSubnetGroup]
+        NumberOfAZs: !Ref NumberOfAZs
+
+
+  Waf:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy WAF Stack
+    Condition: CreateWAF
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/waf.template.yaml"
+      Parameters:
+        Name: !Ref Name
+
+  MySQLRDS:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy MySQL RDS Stack
+    Condition: CreateMySQLRDS
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        VpcCIDR: !Ref VpcCIDR
+        DeployPostgres: false
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        VPNCidr: !Ref VPNCidr
+        DBAllocatedStorage: !Ref MySQLDBAllocatedStorage
+        BackupRetentionPeriod: !Ref MySQLBackupRetentionPeriod
+        DBInstanceClass: !Ref MySQLDBInstanceClass
+        Engine: !Ref MySQLEngine
+        EngineVersion: !Ref MySQLEngineVersion
+        EngineFamily: !Ref MySQLEngineFamily
+        MultiAZ: !Ref MySQLMultiAZ
+        PubliclyAccessible: false
+        DBPort: 3306
+        SecondaryRegions: !Ref SecondaryRegions
+
+  PGSQLRDS:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy PostgreSQL RDS Stack
+    Condition: CreatePGSQLRDS
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        DeployPostgres: true
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: !Ref PGEngine
+        EngineVersion: !Ref PGEngineVersion
+        EngineFamily: !Ref PGEngineFamily
+        DBInstanceClass: !Ref PGDBInstanceClass
+        DBAllocatedStorage: !Ref PGDBAllocatedStorage
+        MultiAZ: !Ref PGSQLMultiAZ
+        PubliclyAccessible: false
+        BackupRetentionPeriod: !Ref PGBackupRetentionPeriod
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+
+  AuroraMySQL:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Aurora MySQL Stack
+    Condition: CreateAuroraMySQL
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/aurora.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: !Ref MySQLEngine
+        EngineVersion: !Ref MySQLEngineVersion
+        EngineFamily: !Ref MySQLEngineFamily
+        DBInstanceClass: !Ref MySQLDBInstanceClass
+        DeployAuroraPostgres: false
+        PubliclyAccessible: false
+        DBPort: 3306
+        VPNCidr: !Ref VPNCidr
+
+  LambdaPGReplica:
+    Type: AWS::CloudFormation::Stack
+    Description: Use Lambda to deploy RDS replicas
+    DependsOn: [ Vpc,PGSQLRDS ]
+    Condition: CreatePGSQLReplica
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/lambda.rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        DeployPostgres: true
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [ Vpc, Outputs.VpcID ]
+        SubnetGroup: !GetAtt [ Vpc, Outputs.PrivateSubnetGroup ]
+        Engine: !Ref PGEngine
+        EngineVersion: !Ref PGEngineVersion
+        EngineFamily: !Ref PGEngineFamily
+        DBInstanceClass: !Ref PGDBInstanceClass
+        MultiAZ: !Ref PGSQLMultiAZ
+        PubliclyAccessible: false
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+        CFNTemplate: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/readreplica.rds.yaml"
+        SecondaryRegions: !Ref SecondaryRegions
+        SourceDBInstanceIdentifier: !GetAtt [ PGSQLRDS, Outputs.DBInstanceIdentifier ]
+        SourceRegion: !Ref Region
+        MasterStackId: !Ref AWS::StackId
+        DBSecretsId: !GetAtt [ PGSQLRDS, Outputs.DBSecretsId ]
+
+  AuroraPostgres:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Aurora Postgres Stack
+    Condition: CreateAuroraPostgres
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/aurora.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: aurora-postgresql
+        EngineVersion: 11.9
+        EngineFamily: aurora-postgresql11
+        DBInstanceClass: db.r5.large
+        DeployAuroraPostgres: true
+        PubliclyAccessible: false
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+
+  DocumentDB:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy DocumentDB Stack
+    Condition: CreateDocumentDB
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/documentdb.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        VpcCIDR: !Ref VpcCIDR
+        VPNCidr: !Ref VPNCidr
+
+  DatadogForwarder:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy a lambda function to push logs to datadog
+    Condition: CreateDatadogForwarder
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/datadog-forwarder.template.yaml"
+      Parameters:
+        DdApiKey: !Ref DatadogApiKey
+        Name: !Ref Name
+        
+
+  CloudfrontLambda:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Cloudfront Lambda stack
+    Condition: CreateCloudfrontLambda
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/cloudfront-lambda.template.yaml"
+      Parameters:
+        Bucket: !Ref Bucket
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        Name: !Ref Name
+        DefaultTTL: 86400
+  
+  DynamoDbBackupVault:
+    Condition: CreateBackupVault
+    Type: AWS::CloudFormation::Stack
+    Description: Create DynamoDB backup vault
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/dynamodb_backup.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  BackboneMsg:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/backbone_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  YellowfinMessaging:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/yellowfin_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+    
+  YellowfinDynamoDb:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy dynamo
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/yellowfin_dynamodb.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  GoblinMessaging:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/goblin_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  GoblinDynamo:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy dynamo
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/goblin_dynamodb.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  PennywiseMessaging:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/pennywise_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+      
+  WolverineMessaging:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs s3 buckets
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/wolverine_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  WolverineDynamo:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy dynamo
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/wolverine_dynamodb.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  RookDynamo:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy dynamo
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/rook_dynamodb.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  BibliotechMessaging:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy messaging sns sqs s3 buckets
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/bibliotech_messaging.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+  BibliotechDynamo:
+    DependsOn: BackboneMsg
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy dynamo
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/bibliotech_dynamodb.template.yaml"
+      Parameters:
+        Env: !Ref Name
+
+Outputs:
+  MasterStackId:
+    Value: !Ref AWS::StackId
+  Vpc:
+    Condition: CreateVPC
+    Value: !Ref Vpc
+  Redshift:
+    Condition: CreateRedshift
+    Value: !Ref Redshift
+  Eks:
+    Condition: CreateEKS
+    Value: !Ref Eks
+  Elasticache:
+    Condition: CreateElasticache
+    Value: !Ref Elasticache
+  Waf:
+    Condition: CreateWAF
+    Value: !Ref Waf
+  MySQLRDS:
+    Condition: CreateMySQLRDS
+    Value: !Ref MySQLRDS
+  AuroraPostgres:
+    Condition: CreateAuroraPostgres
+    Value: !Ref AuroraPostgres
+  DeployDocumentDB:
+    Condition: CreateDocumentDB
+    Value: !Ref DeployDocumentDB
+  DNSZone:
+    Condition: CreateDNSZone
+    Value: !Ref DNSZone
+  GitTag:
+    Value: !Ref GitTag
+  CloudfrontLambda:
+    Condition: CreateCloudfrontLambda
+    Value: !Ref CloudfrontLambda

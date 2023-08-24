@@ -1,0 +1,12 @@
+#!/bin/bash
+
+STACK_NAME=$1
+Region=$2
+
+STACKNAME=$( aws cloudformation --region ${Region} \
+              list-stacks \
+              --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
+              --output json | jq .StackSummaries[].StackName | grep "$STACK_NAME" )
+STACKNAME=$( echo $STACKNAME | tr -d '"' )
+
+echo $STACKNAME

@@ -1,0 +1,647 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch all stacks from here
+Parameters:
+  DeployVPC:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployRedshift:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployEKS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployElasticache:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployWAF:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployMySQLRDS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployPGSQLRDS:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployAuroraPostgres:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployAuroraMySQL:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDocumentDB:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployDNSZone:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployMWAA:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployPowerBIGateway:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+  DeployCloudfront:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+
+  Name:
+    Type: String
+  Region:
+    Type: String
+  Bucket:
+    Type: String
+  DeployBucketPrefix:
+    Type: String
+  EnvType:
+    Type: String
+  SSHKey:
+    Type: AWS::EC2::KeyPair::KeyName
+  ZoneName:
+    Type: String
+    Default: ""
+  SecretSrcRegion:
+    Type: String
+  SecretSrcEnvName:
+    Type: String
+  SkipSecrets:
+    Type: String
+
+  NumberOfAZs:
+    Type: Number
+    AllowedValues: [ "2","3" ]
+    Default: 2
+  EnableVPCTransit:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: false
+  TransitGatewayId:
+    Type: String
+    Default: blank
+  VpcCIDR:
+    Type: String
+  PublicSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 subnets
+  PrivateSubnets:
+    Type: CommaDelimitedList
+    Description: List of 3 Subnets
+  VPNCidr:
+    Type: String
+    Default: 10.12.24.0/21
+  SecondaryRegions:
+    Type: String
+    Default: ""
+
+  ClusterMinSize:
+    Type: Number
+    Default: 1
+  ClusterMaxSize:
+    Type: Number
+    Default: 3
+  ClusterDesiredSize:
+    Type: Number
+    Default: 1
+
+  ClusterSpotMinSize:
+    Type: Number
+    Default: 1
+  ClusterSpotMaxSize:
+    Type: Number
+    Default: 3
+  ClusterSpotDesiredSize:
+    Type: Number
+    Default: 1
+
+  ClusterSpotGpuMinSize:
+    Type: Number
+    Default: 0
+  ClusterSpotGpuMaxSize:
+    Type: Number
+    Default: 2
+  ClusterSpotGpuDesiredSize:
+    Type: Number
+    Default: 0
+
+  CacheNodeType:
+    Type: String
+    Default: cache.t2.micro
+  NumCacheNodes:
+    Type: Number
+    Default: 1
+
+  RedshiftCreateLatestSnapshot:
+    Type: String
+    Default: ""
+  RedshiftSrcClusterRegion:
+    Type: String
+    Default: ""
+  RedshiftRestoreSpecificSnapshot:
+    Type: String
+    Default: ""
+  RedshiftSnapshotId:
+    Type: String
+    Default: ""
+  NodeType:
+    Type: String
+    Default: ds2.xlarge
+  RedshiftReadOnlyUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftMediaUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDataScienceUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDBEngUserGroups:
+    Type: String
+    Default: "read_only"
+  RedshiftDeploymentAutomationUserGroups:
+    Type: String
+    Default: "read_only"
+
+  PGEngine:
+    Type: String
+    Default: ""
+  PGEngineVersion:
+    Type: String
+    Default: ""
+  PGEngineFamily:
+    Type: String
+    Default: ""
+  PGDBInstanceClass:
+    Type: String
+    Default: ""
+  PGDBAllocatedStorage:
+    Type: String
+    Default: 20
+  PGBackupRetentionPeriod:
+    Type: String
+    Default: 30
+  PGSQLMultiAZ:
+    Type: String
+    Default: false
+  DeployPGSQLReplica:
+    Type: String
+    AllowedValues: [ 'true','false' ]
+    Default: false
+
+  MySQLEngine:
+    Type: String
+    Default: ""
+  MySQLEngineVersion:
+    Type: String
+    Default: ""
+  MySQLEngineFamily:
+    Type: String
+    Default: ""
+  MySQLDBInstanceClass:
+    Type: String
+    Default: ""
+  MySQLDBAllocatedStorage:
+    Type: String
+    Default: ""
+  MySQLMultiAZ:
+    Type: String
+    Default: ""
+  MySQLBackupRetentionPeriod:
+    Type: String
+    Default: ""
+  DeployMySQLReplica:
+    Type: String
+    AllowedValues: [ 'true','false' ]
+    Default: false
+
+  MWWABucketName:
+    Type: String
+    Default: ""
+  MWWAOperationalBucketName:
+    Type: String
+    Default: ""
+  MWWAEnvironmentClass:
+    Type: String
+    Default: "mw1.small"
+  MWAAServiceTeamOwner:
+    Type: String
+    Default: "dbeng"
+  MWAAMaxWorkers:
+    Type: String
+    Default: 1
+  MWAALogLevel:
+    Type: String
+    Default: INFO
+  MWWAExecutionEnvironment:
+    Type: String
+    Default: local
+
+  GitTag:
+    Type: String
+    Default: ""
+  RegionActingAs:
+    Type: String
+    Default: ""
+
+  PowerBIInstanceType:
+    Type: String
+    Default: t3.medium
+
+
+Conditions:
+  CreateVPC: !Equals [ !Ref DeployVPC, true ]
+  CreateRedshift: !Equals [ !Ref DeployRedshift, true ]
+  CreateEKS: !Equals [ !Ref DeployEKS, true ]
+  CreateElasticache: !Equals [ !Ref DeployElasticache, true ]
+  CreateWAF: !Equals [ !Ref DeployWAF, true ]
+  CreateMySQLRDS: !Equals [ !Ref DeployMySQLRDS, true ]
+  CreatePGSQLRDS: !Equals [ !Ref DeployPGSQLRDS, true ]
+  CreateAuroraMySQL: !Equals [ !Ref DeployAuroraMySQL, true ]
+  CreateAuroraPostgres: !Equals [ !Ref DeployAuroraPostgres, true ]
+  CreateDNSZone: !Equals [ !Ref DeployDNSZone, true ]
+  CreateMWAA: !Equals [ !Ref DeployMWAA, true ]
+  CreateDocumentDB: !Equals [ !Ref DeployDocumentDB, true]
+  CreateMySQLReplica: !Equals [ !Ref DeployMySQLReplica, true]
+  CreatePGSQLReplica: !Equals [ !Ref DeployPGSQLReplica, true]
+  CreatePowerBIGateway: !Equals [ !Ref DeployPowerBIGateway, true]
+  CreateCfLambda01: !Equals [ !Ref DeployCloudfront, true ]
+  CreateCfLambda02: !Equals [ !Ref RegionActingAs, "master"]
+  CreateCloudfrontLambda: !And
+    - !Condition CreateCfLambda01
+    - !Condition CreateCfLambda02
+
+
+Resources:
+  Vpc:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy VPC Stack
+    Condition: CreateVPC
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/vpc.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        Region: !Ref Region
+        Bucket: !Ref Bucket
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        EnvType: !Ref EnvType
+        SSHKey: !Ref SSHKey
+        EnableVPCTransit: !Ref EnableVPCTransit
+        TransitGatewayId: !Ref TransitGatewayId
+        VpcCIDR: !Ref VpcCIDR
+        PublicSubnets: !Join
+          - ","
+          - !Ref PublicSubnets
+        PrivateSubnets: !Join
+          - ","
+          - !Ref PrivateSubnets
+        NumberOfAZs: !Ref NumberOfAZs
+
+  DNSZone:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Redshift stack
+    Condition: CreateDNSZone
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/dns.template.yaml"
+      Parameters:
+        ZoneName: !Ref ZoneName
+        EnvType: !Ref EnvType
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+
+  Redshift:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Redshift stack
+    Condition: CreateRedshift
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/redshift.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        Region: !Ref Region
+        Bucket: !Ref Bucket
+        ParentVPCStack: !GetAtt [Vpc, Outputs.StackName]
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        SnapshotIdentifier: !Ref RedshiftSnapshotId
+        RedshiftReadOnlyUserGroups: !Ref RedshiftReadOnlyUserGroups
+        RedshiftMediaUserGroups: !Ref RedshiftMediaUserGroups
+        RedshiftDataScienceUserGroups: !Ref RedshiftDataScienceUserGroups
+        RedshiftDBEngUserGroups: !Ref RedshiftDBEngUserGroups
+        RedshiftDeploymentAutomationUserGroups: !Ref RedshiftDeploymentAutomationUserGroups
+
+  Eks:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Eks stack
+    Condition: CreateEKS
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/eks.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        Region: !Ref Region
+        SSHKey: !Ref SSHKey
+        VPNCidr: !Ref VPNCidr
+        ParentVPCStack: !GetAtt [Vpc, Outputs.StackName]
+        ClusterMinSize: !Ref ClusterMinSize
+        ClusterMaxSize: !Ref ClusterMaxSize
+        ClusterDesiredSize: !Ref ClusterDesiredSize
+        ClusterSpotMinSize: !Ref ClusterSpotMinSize
+        ClusterSpotMaxSize: !Ref ClusterSpotMaxSize
+        ClusterSpotDesiredSize: !Ref ClusterSpotGpuDesiredSize
+        ClusterSpotGpuMinSize: !Ref ClusterSpotGpuMinSize
+        ClusterSpotGpuMaxSize: !Ref ClusterSpotGpuMaxSize
+        ClusterSpotGpuDesiredSize: !Ref ClusterSpotGpuDesiredSize
+
+  Elasticache:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Elasticache stack
+    Condition: CreateElasticache
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/elasticache.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        SSHKey: !Ref SSHKey
+        CidrIp: !GetAtt [Vpc, Outputs.VpcCidr]
+        CacheNodeType: !Ref CacheNodeType
+        NumCacheNodes: !Ref NumCacheNodes
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PublicSubnetGroup]
+        NumberOfAZs: !Ref NumberOfAZs
+
+
+  Waf:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy WAF Stack
+    Condition: CreateWAF
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/waf.template.yaml"
+      Parameters:
+        Name: !Ref Name
+
+  MySQLRDS:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy MySQL RDS Stack
+    Condition: CreateMySQLRDS
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        VpcCIDR: !Ref VpcCIDR
+        DeployPostgres: false
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        VPNCidr: !Ref VPNCidr
+        DBAllocatedStorage: !Ref MySQLDBAllocatedStorage
+        BackupRetentionPeriod: !Ref MySQLBackupRetentionPeriod
+        DBInstanceClass: !Ref MySQLDBInstanceClass
+        Engine: !Ref MySQLEngine
+        EngineVersion: !Ref MySQLEngineVersion
+        EngineFamily: !Ref MySQLEngineFamily
+        MultiAZ: !Ref MySQLMultiAZ
+        PubliclyAccessible: false
+        DBPort: 3306
+        SecondaryRegions: !Ref SecondaryRegions
+
+  PGSQLRDS:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy PostgreSQL RDS Stack
+    Condition: CreatePGSQLRDS
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        DeployPostgres: true
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: !Ref PGEngine
+        EngineVersion: !Ref PGEngineVersion
+        EngineFamily: !Ref PGEngineFamily
+        DBInstanceClass: !Ref PGDBInstanceClass
+        DBAllocatedStorage: !Ref PGDBAllocatedStorage
+        MultiAZ: !Ref PGSQLMultiAZ
+        PubliclyAccessible: false
+        BackupRetentionPeriod: !Ref PGBackupRetentionPeriod
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+
+  AuroraMySQL:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Aurora MySQL Stack
+    Condition: CreateAuroraMySQL
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/aurora.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: !Ref MySQLEngine
+        EngineVersion: !Ref MySQLEngineVersion
+        EngineFamily: !Ref MySQLEngineFamily
+        DBInstanceClass: !Ref MySQLDBInstanceClass
+        DeployAuroraPostgres: false
+        PubliclyAccessible: false
+        DBPort: 3306
+        VPNCidr: !Ref VPNCidr
+
+  LambdaPGReplica:
+    Type: AWS::CloudFormation::Stack
+    Description: Use Lambda to deploy RDS replicas
+    DependsOn: [ Vpc,PGSQLRDS ]
+    Condition: CreatePGSQLReplica
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/lambda.rds.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        DeployPostgres: true
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [ Vpc, Outputs.VpcID ]
+        SubnetGroup: !GetAtt [ Vpc, Outputs.PrivateSubnetGroup ]
+        Engine: !Ref PGEngine
+        EngineVersion: !Ref PGEngineVersion
+        EngineFamily: !Ref PGEngineFamily
+        DBInstanceClass: !Ref PGDBInstanceClass
+        MultiAZ: !Ref PGSQLMultiAZ
+        PubliclyAccessible: false
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+        CFNTemplate: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/readreplica.rds.yaml"
+        SecondaryRegions: !Ref SecondaryRegions
+        SourceDBInstanceIdentifier: !GetAtt [ PGSQLRDS, Outputs.DBInstanceIdentifier ]
+        SourceRegion: !Ref Region
+        MasterStackId: !Ref AWS::StackId
+        DBSecretsId: !GetAtt [ PGSQLRDS, Outputs.DBSecretsId ]
+
+  AuroraPostgres:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Aurora Postgres Stack
+    Condition: CreateAuroraPostgres
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/aurora.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        VpcCIDR: !Ref VpcCIDR
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        Engine: aurora-postgresql
+        EngineVersion: 11.9
+        EngineFamily: aurora-postgresql11
+        DBInstanceClass: db.r5.large
+        DeployAuroraPostgres: true
+        PubliclyAccessible: false
+        DBPort: 5432
+        VPNCidr: !Ref VPNCidr
+
+  DocumentDB:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy DocumentDB Stack
+    Condition: CreateDocumentDB
+    DependsOn: Vpc
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/documentdb.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        SubnetGroup: !GetAtt [Vpc, Outputs.PrivateSubnetGroup]
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        VpcCIDR: !Ref VpcCIDR
+        VPNCidr: !Ref VPNCidr
+
+  MWAA:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy MWAA Stack
+    Condition: CreateMWAA
+    DependsOn:
+      - Vpc
+      - Redshift
+      - Eks
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/mwaa.template.yaml"
+      Parameters:
+        MWWABucketName: !Ref MWWABucketName
+        MWWAEnvironmentClass: !Ref MWWAEnvironmentClass
+        ServiceTeamOwner: !Ref MWAAServiceTeamOwner
+        MaxWorkers: !Ref MWAAMaxWorkers
+        LogLevel: !Ref MWAALogLevel
+        VpcId: !GetAtt [Vpc, Outputs.VpcID]
+        ParentVPCStack: !GetAtt [Vpc, Outputs.StackName]
+        EksClusterArn: !GetAtt [Eks, Outputs.EksClusterArn]
+
+  MWAAIAMOperationalUsers:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy MWAA IAM Operation User Stack
+    Condition: CreateMWAA
+    DependsOn: MWAA
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/mwaa_iam.template.yaml"
+      Parameters:
+        Environment: !Ref EnvType
+        MWWAOperationalBucketName: !Ref MWWAOperationalBucketName
+        Region: !Ref Region
+        MWAAStackName: !GetAtt [MWAA, Outputs.StackName]
+        RedshiftClusterEndpoint:
+          !GetAtt [Redshift, Outputs.RedshiftClusterEndpoint]
+        RedshiftReadOnlyUser: !GetAtt [Redshift, Outputs.RedshiftReadOnlyUser]
+        RedshiftMediaUser: !GetAtt [Redshift, Outputs.RedshiftMediaUser]
+        RedshiftDataScienceUser:
+          !GetAtt [Redshift, Outputs.RedshiftDataScienceUser]
+        RedshiftDBEngUser: !GetAtt [Redshift, Outputs.RedshiftDBEngUser]
+        RedshiftDeploymentAutomationUser:
+          !GetAtt [Redshift, Outputs.RedshiftDeploymentAutomationUser]
+        MediaRedshiftSpectrumIAMRole:
+          !GetAtt [Redshift, Outputs.MediaRedshiftSpectrumIAMRole]
+        RedshiftCopyUnloadIAMRole:
+          !GetAtt [Redshift, Outputs.RedshiftCopyUnloadIAMRole]
+        RedshiftSpectrumReptrakIAMRole:
+          !GetAtt [Redshift, Outputs.RedshiftSpectrumReptrakIAMRole]
+
+  PowerBIDataGateway:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy PowerBI Data Gateway stack
+    Condition: CreatePowerBIGateway
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/powerbi_datagateway.template.yaml"
+      Parameters:
+        Name: !Ref Name
+        EnvType: !Ref EnvType
+        SSHKey: !Ref SSHKey
+        VPNCidr: !Ref VPNCidr
+        PowerBIInstanceType: !Ref PowerBIInstanceType
+        VolumeSize: 50
+        VpcId: !GetAtt [ Vpc, Outputs.VpcID ]
+        SubnetId: !GetAtt [ Vpc, Outputs.PublicSubnetAz1 ]
+
+  CloudfrontLambda:
+    Type: AWS::CloudFormation::Stack
+    Description: Deploy Cloudfront Lambda stack
+    Condition: CreateCloudfrontLambda
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${Bucket}/${Name}/${DeployBucketPrefix}/cloudfront-lambda.template.yaml"
+      Parameters:
+        Bucket: !Ref Bucket
+        DeployBucketPrefix: !Ref DeployBucketPrefix
+        envName: !Ref EnvType
+        DefaultTTL: 86400
+
+Outputs:
+  MasterStackId:
+    Value: !Ref AWS::StackId
+  Vpc:
+    Condition: CreateVPC
+    Value: !Ref Vpc
+  Redshift:
+    Condition: CreateRedshift
+    Value: !Ref Redshift
+  Eks:
+    Condition: CreateEKS
+    Value: !Ref Eks
+  Elasticache:
+    Condition: CreateElasticache
+    Value: !Ref Elasticache
+  Waf:
+    Condition: CreateWAF
+    Value: !Ref Waf
+  MySQLRDS:
+    Condition: CreateMySQLRDS
+    Value: !Ref MySQLRDS
+  AuroraPostgres:
+    Condition: CreateAuroraPostgres
+    Value: !Ref AuroraPostgres
+  DeployDocumentDB:
+    Condition: CreateDocumentDB
+    Value: !Ref DeployDocumentDB
+  DNSZone:
+    Condition: CreateDNSZone
+    Value: !Ref DNSZone
+  MWAA:
+    Condition: CreateMWAA
+    Value: !Ref MWAA
+  GitTag:
+    Value: !Ref GitTag
+  CloudfrontLambda:
+    Condition: CreateCloudfrontLambda
+    Value: !Ref CloudfrontLambda

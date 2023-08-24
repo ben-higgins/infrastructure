@@ -1,0 +1,350 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: lambda function to create rds replicas
+Parameters:
+  Name:
+    Type: String
+    Default: ""
+  DeployPostgres:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBInstanceClass:
+    Description: The compute and memory capacity of the DB instance
+    Type: String
+  Engine:
+    Description: RDS database engine
+    Type: String
+  EngineFamily:
+    Type: String
+  EngineVersion:
+    Description: Default RDS database engine version
+    Type: String
+  MultiAZ:
+    Description: Setup RDS with Multi-AZ deployment
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: false
+  PubliclyAccessible:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBPort:
+    Type: Number
+  Name:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  VpcCIDR:
+    Type: String
+  SubnetGroup:
+    Type: String
+  VPNCidr:
+    Type: String
+  SourceDBInstanceIdentifier:
+    Type: String
+  SourceRegion:
+    Type: String
+  SecondaryRegions:
+    Type: String
+  CFNTemplate:
+    Type: String
+  MasterStackId:
+    Type: String
+  DBSecretsId:
+    Type: String
+
+Resources:
+
+  LambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: LambdaFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                  - ec2:*
+                  - rds:*
+                  - kms:*
+                  - secretsmanager:*
+                  - cloudformation:*
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: DeployRDSReplica
+      Runtime: python3.8
+      Timeout: 300
+      Handler: index.handler
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Code:
+        ZipFile:
+          !Sub
+          - |-
+            #!/usr/bin/env python3
+
+            import boto3
+            import json
+            import cfnresponse
+            import logging
+            import traceback
+
+            LOGGER = logging.getLogger()
+            LOGGER.setLevel(logging.INFO)
+
+            def handler(event, context):
+              name = '${Name}'
+              CFNTemplate = '${CFNTemplate}'
+
+              print(event)
+
+              try:
+                def get_secret(keyName):
+                    session = boto3.session.Session()
+                    client = session.client(service_name='secretsmanager',region_name='${SourceRegion}')
+                    response = client.get_secret_value(SecretId='${DBSecretsId}')
+                    secrets = response['SecretString']
+                    secret = json.loads(secrets)
+                    return secret[keyName]
+
+                def stack_details(stackName, region):
+                    client = boto3.client('cloudformation', region_name=region)
+                    response = client.describe_stacks(StackName=stackName)
+                    return response
+
+                def get_nested_name(envName, nestName, region):
+                    parentName = stack_exist(envName, region)
+                    response = stack_details(parentName, region)
+                    for output in response["Stacks"][0]["Outputs"]:
+                        if output["OutputKey"] == nestName:
+                            response = stack_details(output["OutputValue"], region)
+                            return response["Stacks"][0]["StackName"]
+
+                def get_stack_output(stackName, key, region):
+                    response = stack_details(stackName, region)
+                    outputs =  response["Stacks"][0]["Outputs"]
+                    for output in outputs:
+                        if output["OutputKey"] == key:
+                            return output["OutputValue"]
+
+                # returns None or the Stack Name
+                def stack_exist(envName, region):
+                    # get list of stacks in region
+                    client = boto3.client('cloudformation', region_name=region)
+                    response = client.list_stacks(
+                        StackStatusFilter=[
+                            'CREATE_COMPLETE','ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_IN_PROGRESS','UPDATE_COMPLETE','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE'
+                        ]
+                    )
+
+                    # check if stack exists in list
+                    stackName = None
+                    stackList = response["StackSummaries"]
+                    for item in stackList:
+                        if envName == item["StackName"]:
+                            stackName = item["StackName"]
+
+                    return stackName
+
+                def build_params(region):
+                    params = []
+                    params.append({'ParameterKey': 'Name', 'ParameterValue': '${Name}'})
+                    params.append({'ParameterKey': 'DeployPostgres', 'ParameterValue': '${DeployPostgres}'})
+                    params.append({'ParameterKey': 'DBInstanceClass', 'ParameterValue': '${DBInstanceClass}'})
+                    params.append({'ParameterKey': 'Engine', 'ParameterValue': '${Engine}'})
+                    params.append({'ParameterKey': 'EngineFamily', 'ParameterValue': '${EngineFamily}'})
+                    params.append({'ParameterKey': 'EngineVersion', 'ParameterValue': '${EngineVersion}'})
+                    params.append({'ParameterKey': 'MultiAZ', 'ParameterValue': '${MultiAZ}'})
+                    params.append({'ParameterKey': 'PubliclyAccessible', 'ParameterValue': '${PubliclyAccessible}'})
+                    params.append({'ParameterKey': 'DBPort', 'ParameterValue': '${DBPort}'})
+                    params.append({'ParameterKey': 'VPNCidr', 'ParameterValue': '${VPNCidr}'})
+                    params.append({'ParameterKey': 'SourceRegion', 'ParameterValue': '${SourceRegion}'})
+                    params.append({'ParameterKey': 'Name', 'ParameterValue': '${Name}'})
+
+                    nest = get_nested_name(name, "Vpc", region)
+
+                    vpcid = get_stack_output(nest, "VpcID", region)
+                    params.append({'ParameterKey': 'VpcId', 'ParameterValue': vpcid})
+
+                    subnetgroup = get_stack_output(nest, "PrivateSubnetGroup", region)
+                    params.append({'ParameterKey': 'SubnetGroup', 'ParameterValue': subnetgroup})
+
+                    VpcCidr = get_stack_output(nest, "VpcCidr", region)
+                    params.append({'ParameterKey': 'VpcCIDR', 'ParameterValue': VpcCidr})
+
+                    rdsArn = get_rds_arn('${SourceDBInstanceIdentifier}', '${SourceRegion}')
+                    params.append({'ParameterKey': 'SourceDBInstanceIdentifier', 'ParameterValue': rdsArn})
+
+                    kmsArn = get_kms_arn(region)
+                    params.append({'ParameterKey': 'KmsKeyId', 'ParameterValue': kmsArn})
+
+                    dbusername = get_secret("username")
+                    params.append({'ParameterKey': 'DBUsername', 'ParameterValue': dbusername})
+
+                    dbpassword = get_secret("password")
+                    params.append({'ParameterKey': 'DBPassword', 'ParameterValue': dbpassword})
+
+                    return params
+
+                def stack_exist(envName, region):
+                    # get list of stacks in region
+                    client = boto3.client('cloudformation', region_name = region)
+                    response = client.list_stacks(
+                            StackStatusFilter = [
+                                    'CREATE_COMPLETE', 'ROLLBACK_IN_PROGRESS', 'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_IN_PROGRESS', 'UPDATE_COMPLETE',
+                                    'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'
+                                    ]
+                            )
+
+                    # check if stack exists in list
+                    stackName = None
+                    stackList = response["StackSummaries"]
+                    for item in stackList:
+                        if envName == item["StackName"]:
+                            stackName = item["StackName"]
+
+                    return stackName
+
+                def build_stack(envName, region, template, params):
+                    # prevent main branch deployments from being deleted
+                    if envName == "main":
+                        protect = True
+                    else:
+                        protect = False
+
+                    client = boto3.client('cloudformation', region_name = region)
+                    response = client.create_stack(
+                        StackName = envName + "-ReadReplica-Master-${SourceRegion}",
+                        TemplateURL = template,
+                        Parameters = params,
+                        DisableRollback = True,
+                        Capabilities = ['CAPABILITY_NAMED_IAM'],
+                        Tags = [
+                          {
+                              'Key': 'Environment',
+                              'Value': envName
+                          },
+                          {
+                              'Key': 'MasterStack',
+                              'Value': '${MasterStackId}'
+                          },
+                          {
+                              'Key': 'MasterRegion',
+                              'Value': '${SourceRegion}'
+                          }
+                        ],
+                        EnableTerminationProtection = protect
+                    )
+                    return response
+
+                def update_stack(envName, region, template, params):
+                    client = boto3.client('cloudformation', region_name = region)
+                    response = client.update_stack(
+                            StackName = envName + "-ReadReplica-Master-${SourceRegion}",
+                            TemplateURL = template,
+                            UsePreviousTemplate = False,
+                            Parameters = params,
+                            Capabilities = ['CAPABILITY_NAMED_IAM'],
+                            Tags = [
+                              {
+                                  'Key': 'Environment',
+                                  'Value': envName
+                              },
+                              {
+                                  'Key': 'MasterStack',
+                                  'Value': '${MasterStackId}'
+                              },
+                              {
+                                  'Key': 'MasterRegion',
+                                  'Value': '${SourceRegion}'
+                              }
+                            ]
+                            )
+                    return response
+
+
+                def get_kms_arn(region):
+                    client = boto3.client('kms', region_name = region)
+                    response = client.list_aliases(
+                    )
+
+                    for alias in response['Aliases']:
+                        if alias['AliasName'] == "alias/aws/rds":
+                            key = alias['TargetKeyId']
+
+                    response = client.describe_key(
+                        KeyId=key
+                    )
+
+                    return response['KeyMetadata']['Arn']
+
+
+                def get_rds_arn(instanceIdentifier, region):
+                    client = boto3.client('rds', region_name = region)
+                    response = client.describe_db_instances(
+                        DBInstanceIdentifier=instanceIdentifier
+                    )
+
+                    return response['DBInstances'][0]['DBInstanceArn']
+
+                regions = [${SecondaryRegions}]
+                for region in regions:
+                    params = build_params(region)
+                    print(params)
+                    print(region)
+
+                    if event["RequestType"] == "Delete":
+
+                        stackName = name + "-ReadReplica-Master-${SourceRegion}"
+                        client = boto3.client('cloudformation', region_name=region)
+
+                        response = client.delete_stack(
+                            StackName=stackName
+                        )
+                        print(response)
+
+                    else:
+                        # check if stack already exists
+                        stackName = stack_exist(name + "-ReadReplica-Master-${SourceRegion}", region)
+                        if stackName is None:
+                          #create new stack
+
+                          build = build_stack(name, region, CFNTemplate, params)
+                          print(build)
+                        else:
+                          # update stack
+                          build = update_stack(name, region, CFNTemplate, params)
+                          print(build)
+
+              except Exception as e:
+                LOGGER.error(e)
+                traceback.print_exc()
+                print(e)
+              finally:
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                print("send response back to invoker")
+                print(context)
+          -
+            lambda_function_role_arn: !Ref LambdaFunctionRole
+
+
+  Primerinvoke:
+    Type: AWS::CloudFormation::CustomResource
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn

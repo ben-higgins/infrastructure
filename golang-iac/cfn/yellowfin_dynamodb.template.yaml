@@ -1,0 +1,451 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service and adds a ecs service
+  and taskdef to the cluster
+Parameters:
+
+  Env:
+    Description: The Env name (prod/staging/test or some other unique id)
+    Type: String
+  DynamoBackup:
+    Type: String
+    Default: true 
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+  ##########################################################################
+  # submission_coverage
+  ##########################################################################
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Env}-Yellowfin-Submission-coverage
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+
+  
+  ##########################################################################
+  # Dynamo DB
+  ##########################################################################
+  YellowfinSubmissionCoverageDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: key
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        !If [Prod, yellowfin-submission-coverages, !Sub "${Env}.yellowfin-submission-coverages"]
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  ##########################################################################
+  # DB Autoscaling
+  ##########################################################################
+  SubmissionCoverageTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionCoverageDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionCoverageTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionCoverageTableWriteScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionCoverageTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  SubmissionCoverageTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionCoverageDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionCoverageTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionCoverageTableReadScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionCoverageTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  ##########################################################################
+  # submission
+  ##########################################################################
+  YellowfinApplicationDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: applicationID
+          AttributeType: S
+        - AttributeName: version
+          AttributeType: S
+      KeySchema:
+        - AttributeName: applicationID
+          KeyType: HASH
+        - AttributeName: version
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        !If [Prod, yellowfin-application, !Sub "${Env}.yellowfin-application"]
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  YellowfinSubmissionDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: version
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+        - AttributeName: openAs
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: version
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        !If [Prod, yellowfin-submission, !Sub "${Env}.yellowfin-submission"]
+      GlobalSecondaryIndexes:
+        - IndexName: open-updated-index
+          KeySchema:
+            - AttributeName: openAs
+              KeyType: HASH
+            - AttributeName: updatedAt
+              KeyType: RANGE
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - applicationID
+              - submissionID
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # DB Autoscaling
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Env}-Yellowfin-Submission
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+                
+  ApplicationTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinApplicationDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ApplicationTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ApplicationTableWriteScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApplicationTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  ApplicationTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinApplicationDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ApplicationTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ApplicationTableReadScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApplicationTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  SubmissionTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionTableWriteScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  SubmissionTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionTableReadScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  ##########################################################################
+  # Submission limits
+  ##########################################################################
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Env}-Yellowfin-Submission_limits
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+
+  # Dynamo DB
+  YellowfinSubmissionlimitsDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName:
+        !If [Prod, yellowfin-submission-limits, !Sub "${Env}.yellowfin-submission-limits"]
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # DB Autoscaling
+  SubmissionlimitsTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionlimitsDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionlimitsTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionlimitsTableWriteScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionlimitsTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  SubmissionlimitsTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref YellowfinSubmissionlimitsDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  SubmissionlimitsTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: SubmissionlimitsTableReadScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref SubmissionlimitsTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization

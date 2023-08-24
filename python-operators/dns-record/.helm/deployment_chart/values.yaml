@@ -1,0 +1,18 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+
+replicaCount: 1
+
+container:
+  image: null
+
+region: null
+
+# In multi-region env, cloudfront CDN dns-entry must only be added/removed from master region only
+RegionActingAs: ""
+
+# Prefix the DNS entry with keyword "origin" if this parameter is True, that means cloudfront CDN is deployed so ALB DNS entries must have "origin" prefix
+DeployCloudfront: ""

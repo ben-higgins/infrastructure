@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+    spec:
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          ports:
+            - containerPort: {{ .Values.container.port }}
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: {{ .Values.rootPass }}
+
+

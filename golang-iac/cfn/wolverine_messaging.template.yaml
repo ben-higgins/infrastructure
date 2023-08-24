@@ -1,0 +1,307 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name (main/staging/test or some other unique id)
+    Type: String
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+
+  ##########################################################################
+  # availability SQS and SNS
+  ##########################################################################
+  WolverineAvailabilityQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, wolverine-availability-queue, !Sub "${Env}-wolverine-availability-queue"]  
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  WolverineAvailabilityQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WolverineAvailabilityQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: WolverineAvailabilityQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt WolverineAvailabilityQueue.Arn
+
+  WolverineAvailabilityConfigSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineAvailabilityQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-availability"
+
+  WolverineVersionAliasDeleteSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineAvailabilityQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-alias-delete"
+
+
+  ##########################################################################
+  # class plan SQS and SNS
+  ##########################################################################
+  WolverineClassPlanQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, wolverine-classplan-queue, !Sub "${Env}-wolverine-classplan-queue"]  
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  WolverineClassPlanQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WolverineClassPlanQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: WolverineClassPlanQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt WolverineClassPlanQueue.Arn
+
+  WolverineClassPlanConfigSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineClassPlanQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-classplan"
+
+  WolverineVersionAliasDeleteSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineClassPlanQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-alias-delete"
+
+
+  ##########################################################################
+  # communication SQS and SNS
+  ##########################################################################
+  WolverineCommunicationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, wolverine-communication-queue, !Sub "${Env}-wolverine-communication-queue"]  
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  WolverineCommunicationQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WolverineCommunicationQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: WolverineCommunicationQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt WolverineCommunicationQueue.Arn
+
+  WolverineCommunicationConfigSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineCommunicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-communication"
+
+  WolverineVersionAliasDeleteSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineCommunicationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-alias-delete"
+
+##########################################################################
+  # Product SQS and SNS
+  ##########################################################################
+  WolverineProductQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, wolverine-product-queue, !Sub "${Env}-wolverine-product-queue"] 
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  WolverineProductQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WolverineProductQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: WolverineProductQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt WolverineProductQueue.Arn
+
+  ProductPublishWolverineProductSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineProductQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-product"
+
+  LocationPublishWolverineProductSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineProductQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-location"
+
+  VersionDraftWolverineProductSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineProductQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-draft"
+
+  VersionPublishWolverineProductSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineProductQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-publish"
+
+  VersionDeleteWolverineProductSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineProductQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-delete"
+
+  ##########################################################################
+  # Territory SQS and SNS
+  ##########################################################################
+  WolverineTerritoryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, wolverine-territory-queue, !Sub "${Env}-wolverine-territory-queue"] 
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+
+  WolverineTerritoryQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WolverineTerritoryQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: WolverineTerritoryQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt WolverineTerritoryQueue.Arn
+
+  WolverineTerritoryConfigSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineTerritoryQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-config-publish-territory"
+
+  WolverineVersionAliasDeleteSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt WolverineTerritoryQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-product-version-alias-delete"

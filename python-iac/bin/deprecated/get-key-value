@@ -1,0 +1,34 @@
+#!/bin/bash
+
+STACK_NAME=$1
+Region=$2
+key=$3
+
+  # get stack output
+  OUTLIST=$( aws cloudformation \
+          --region ${Region} describe-stacks \
+          --stack-name $STACK_NAME \
+          --output json | jq .Stacks[].Outputs )
+
+  count=$( echo $OUTLIST | jq '. | length' )
+
+  for i in $(seq 0 $count)
+  do
+    outkey=$( aws cloudformation \
+          --region ${Region} describe-stacks \
+          --stack-name $STACK_NAME \
+          --output json | jq .Stacks[].Outputs[$i] | jq .OutputKey )
+
+    outkey=$( echo $outkey | tr -d '"' )
+
+    if [ "$outkey" == "$key" ]; then
+      value=$( aws cloudformation \
+          --region ${Region} describe-stacks \
+          --stack-name $STACK_NAME \
+          --output json | jq .Stacks[].Outputs[$i] | jq .OutputValue )
+      value=$( echo $value | tr -d '"' )
+    fi
+  done
+
+  echo $value
+

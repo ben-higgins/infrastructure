@@ -1,0 +1,21 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+
+replicaCount: 1
+
+container:
+  image: null
+
+bucket: null
+region: null
+
+job:
+  image: 663946581577.dkr.ecr.us-east-1.amazonaws.com/mysql-sidecar:latest
+  action: RESTORE
+
+
+
+

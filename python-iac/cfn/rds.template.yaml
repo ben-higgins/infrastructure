@@ -1,0 +1,245 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: PostgreSQL/MySQL RDS Template
+Parameters:
+  EnvType:
+    Type: String
+  DeployPostgres:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBAllocatedStorage:
+    Description: Select RDS disk size in GB
+    Type: String
+    Default: 20
+  BackupRetentionPeriod:
+    Type: String
+    Description: The number of days for which automated backups are retained
+  DBInstanceClass:
+    Description: The compute and memory capacity of the DB instance
+    Type: String
+  Engine:
+    Description: RDS database engine
+    Type: String
+  EngineFamily:
+    Type: String
+  EngineVersion:
+    Description: Default RDS database engine version
+    Type: String
+  MultiAZ:
+    Description: Setup RDS with Multi-AZ deployment
+    Type: String
+    AllowedValues: ['true', 'false']
+  PubliclyAccessible:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBPort:
+    Type: Number
+  Name:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  VpcCIDR:
+    Type: String
+  SubnetGroup:
+    Type: String
+  VPNCidr:
+    Type: String
+  SecondaryRegions:
+    Type: String
+    Default: ""
+
+Conditions:
+  CreatePostgres: !Equals [ !Ref DeployPostgres, "true"]
+  CreateMySQL: !Equals [ !Ref DeployPostgres, "false"]
+
+Resources:
+  RDSInstanceRotationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'This is the secret for my RDS instance'
+      Name: !Sub ${Name}/${Engine}-rds
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "db_admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  SecretRDSInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RDSInstanceRotationSecret
+      TargetId: !Ref RDSInstance
+      TargetType: AWS::RDS::DBInstance
+
+  MySQLRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateMySQL
+    Properties:
+      Description: CloudFormation RDS Parameter Group
+      Family: !Ref EngineFamily
+      Parameters:
+        time_zone: US/Eastern
+        sql_mode: IGNORE_SPACE
+        max_allowed_packet: 1073741824
+        innodb_buffer_pool_size: '{DBInstanceClassMemory*3/4}'
+        log_bin_trust_function_creators: 1
+
+  PGSQLRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreatePostgres
+    Properties:
+      Description: CloudFormation RDS Parameter Group
+      Family: !Ref EngineFamily
+      Parameters:
+        rds.force_ssl: 1
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds: !Split [ ',', !Ref SubnetGroup ]
+
+  SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - RDS Security Group" ] ]
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: 'mysql RDS access'
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VPNCidr
+          Description: 'vpn endpoint vpc cidr'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-${Engine}-securityGroup'
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub ${AWS::StackName}-${Engine}-rds
+      DBParameterGroupName: !If [CreatePostgres, !Ref PGSQLRDSDBParameterGroup, !Ref MySQLRDSDBParameterGroup]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !Ref Engine
+      EngineVersion: !Ref EngineVersion
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSInstanceRotationSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSInstanceRotationSecret, ':SecretString:password}}' ]]
+      MultiAZ: !Ref MultiAZ
+      Port: !Ref DBPort
+      PreferredBackupWindow: 03:00-04:00
+      PreferredMaintenanceWindow: sat:04:00-sat:05:00
+      PubliclyAccessible: !Ref PubliclyAccessible
+      StorageEncrypted: true
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref SecurityGroup
+
+
+  LambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: LambdaFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:*
+                Resource: '*'
+
+  LambdaMultiSecretReplicas:
+    Condition: CreateMySQL
+    DependsOn: RDSInstanceRotationSecret
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvType}SecretsReplicas'
+      Runtime: python3.8
+      Timeout: 300
+      Handler: index.handler
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Code:
+        ZipFile:
+          !Sub
+          - |-
+            #!/usr/bin/env python3
+
+            import boto3
+            import cfnresponse
+            import logging
+            import traceback
+            
+            LOGGER = logging.getLogger()
+            LOGGER.setLevel(logging.INFO)
+
+            def handler(event, context):
+              print(event)
+
+              try:
+                client = boto3.client('secretsmanager', region_name='${AWS::Region}')
+                
+                regions = [${SecondaryRegions}]
+                secretId = '${RDSInstanceRotationSecret}'
+              
+                jRegion=[]
+                for region in regions:
+                    jRegion.append({"Region": region})
+                
+                if event["RequestType"] == "Delete":
+                    response = client.remove_regions_from_replication(
+                        SecretId=secretId,
+                        RemoveReplicaRegions=regions,
+                    )
+                else:
+                    response = client.replicate_secret_to_regions(
+                        SecretId=secretId,
+                        AddReplicaRegions=jRegion,
+                        ForceOverwriteReplicaSecret=True
+                    )
+              except Exception as e:
+                LOGGER.error(e)
+                traceback.print_exc()
+                print(e)
+              finally:
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                print("send response back to invoker")
+                print(context)
+          -
+            lambda_function_role_arn: !Ref LambdaFunctionRole
+
+
+  Primerinvoke:
+    Condition: CreateMySQL
+    Type: AWS::CloudFormation::CustomResource
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt LambdaMultiSecretReplicas.Arn
+
+Outputs:
+  SecretsName:
+    Value: !Sub ${Name}/${Engine}-rds
+  RDSAddress:
+    Value: !GetAtt RDSInstance.Endpoint.Address
+  DBInstanceIdentifier:
+    Value: !Ref RDSInstance
+  DBSecretsId:
+    Value: !Ref RDSInstanceRotationSecret

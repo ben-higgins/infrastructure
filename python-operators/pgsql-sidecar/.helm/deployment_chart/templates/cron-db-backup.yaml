@@ -1,0 +1,25 @@
+{{ if eq .Values.RegionActingAs "master" }}
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cron-{{ .Values.serviceName }}-backup-dbs
+spec:
+  schedule: "0 4 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: {{ .Values.serviceName }}
+              image: {{ .Values.container.image }}
+              env:
+                - name: REGION
+                  value: {{ .Values.region }}
+                - name: ENVTYPE
+                  value: {{ .Values.envType }}
+                - name: ACTION
+                  value: BACKUP
+                - name: SERVICE_OVERRIDE
+                  value: {{ .Values.serviceOverride }}
+          restartPolicy: OnFailure
+{{ end }}

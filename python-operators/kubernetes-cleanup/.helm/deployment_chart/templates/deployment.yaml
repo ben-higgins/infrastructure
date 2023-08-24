@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-{{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: ops-{{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: ops-{{ .Values.serviceName }}
+    spec:
+      serviceAccountName: ops-{{ .Values.serviceName }}
+      containers:
+        - name: ops-{{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: ENVTYPE
+              value: {{ .Values.envType }}
+            - name: REGION
+              value: {{ .Values.region }}
+            - name: SECRET_NAME
+              value: {{ .Values.secretName }}

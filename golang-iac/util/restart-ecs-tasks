@@ -1,0 +1,61 @@
+#!/bin/bash
+
+export AWS_PAGER=""
+
+CLEAR='\033[0m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+
+function usage() {
+  if [ -n "$1" ]; then
+    echo -e "${RED}👉 $1${CLEAR}\n";
+  fi
+  echo "Usage: $0 [-e environment] [-s stage]"
+  echo "  -e, --environment        The environment to deploy apps into - default: dev"
+  echo "  -s, --stage              The stage to deploy apps into - default: dev-1"
+  echo ""
+  echo "Example: $0 --environment dev --stage dev-1"
+  exit 1
+}
+
+# parse params
+while [[ "$#" > 0 ]]; do case $1 in
+  -e|--environment) ENV="$2";shift; shift;;
+  -s|--stage) STAGE="$2";shift; shift;;
+  *) usage "Unknown parameter passed: $1"; shift; shift;;
+esac; done
+
+# verify params
+if [ -z "$ENV" ]; then 
+    export ENV=dev
+else
+    export ENV=$ENV
+fi;
+
+if [ -z "$STAGE" ]; then 
+    export STAGE=dev-1
+else
+    export STAGE=$STAGE
+fi;
+
+if [ -n "$ENV" ]; then 
+  echo -e "${YELLOW}👉 Restarting all ECS tasks of the specified profile along with minor house cleaning and baking you a fresh apple pie for dessert (check your fridge)${CLEAR}\n";
+  for c in $(aws ecs list-clusters --profile $ENV | jq .clusterArns | jq -r .[]); do
+    echo -e "${YELLOW}👉 Current Cluster: ${c}${CLEAR}\n";
+    if [ $ENV = "dev" ]; then 
+      if [[ $c =~ $STAGE ]]; then
+        for s in $(aws ecs list-services --cluster $c --profile $ENV | jq .serviceArns | jq -r .[]); do 
+          echo -e "${YELLOW}👉 Initiating ECS task restart for ${s}${CLEAR}\n"
+          aws ecs update-service --service $s --cluster $c --force-new-deployment --profile $ENV
+        done
+      fi
+    elif [[ $c =~ $ENV ]] || [ $ENV = "prod" ]; then 
+      for s in $(aws ecs list-services --cluster $c --profile $ENV | jq .serviceArns | jq -r .[]); do 
+        echo -e "${YELLOW}👉 Initiating ECS task restart for ${s}${CLEAR}\n"
+        aws ecs update-service --service $s --cluster $c --force-new-deployment --profile $ENV
+      done
+    else 
+      echo -e "${YELLOW}👉 Uh oh! Couldn't find your environment ${ENV}! Double check that the ARN of your cluster contains the environment and/or stage in question.${CLEAR}\n"
+    fi
+  done
+fi

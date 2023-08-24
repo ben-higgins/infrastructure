@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  EksClusterArn:
+    Type: String
+    Description: Eks cluster
+
+  MWWABucketName:
+    Type: String
+    Description: The S3 bucket where your source code is stored.
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID
+
+  ParentVPCStack:
+    Description: 'VPC Stack Name'
+    Type: String
+    MinLength: '1'
+    MaxLength: '128'
+    AllowedPattern: '^[a-zA-Z]+[0-9a-zA-Z\-]*$'
+
+  MWWAAirflowVersion:
+    Description: 'VPC Stack Name'
+    Type: String
+    Default: 2.0.2
+
+  MWWAEnvironmentClass:
+    Description: 'Instance class'
+    Type: String
+    Default: mw1.small
+    AllowedValues:
+      - mw1.small
+      - mw1.medium
+      - mw1.large
+
+  MWWAExecutionEnvironment:
+    Description: 'Execution environment'
+    Type: String
+    Default: local
+    AllowedValues:
+      - local
+      - prod
+      - dev
+      - qa
+
+  ServiceTeamOwner:
+    Description: 'Service owner team'
+    Type: String
+    Default: dbeng
+
+  LogLevel:
+    Description: 'logging level'
+    Type: String
+    Default: ERROR
+
+  MaxWorkers:
+    Description: 'logging level'
+    Type: Number
+    Default: 1
+
+Resources:
+  MwaaEnvironment:
+    Type: AWS::MWAA::Environment
+    Properties:
+      AirflowVersion: !Ref MWWAAirflowVersion
+      Name: !Sub "${AWS::StackName}-MwaaEnvironment"
+      SourceBucketArn: !Sub arn:aws:s3:::${MWWABucketName}
+      ExecutionRoleArn: !GetAtt MwaaExecutionRole.Arn
+      DagS3Path: dags
+      PluginsS3Path: plugins.zip
+      RequirementsS3Path: dags/requirements.txt
+      AirflowConfigurationOptions: {
+        "logging.logging_level": !Ref LogLevel,
+        "core.default_timezone": "utc",
+        "core.load_examples": False,
+        "core.load_default_connections": False,
+        "secrets.backend": "airflow.contrib.secrets.aws_secrets_manager.SecretsManagerBackend",
+        "secrets.backend_kwargs": !Sub '{ "connections_prefix": "airflow/${AWS::StackName}/connection", "variables_prefix": "airflow/${AWS::StackName}/variable" }',
+      }
+      LoggingConfiguration:
+        DagProcessingLogs:
+          Enabled: True
+          LogLevel: !Ref LogLevel
+        SchedulerLogs:
+          Enabled: True
+          LogLevel: !Ref LogLevel
+        TaskLogs:
+          Enabled: True
+          LogLevel: !Ref LogLevel
+        WebserverLogs:
+          Enabled: True
+          LogLevel: !Ref LogLevel
+        WorkerLogs:
+          Enabled: True
+          LogLevel: !Ref LogLevel
+      EnvironmentClass: !Ref MWWAEnvironmentClass
+      MaxWorkers: !Ref MaxWorkers
+      NetworkConfiguration:
+        SecurityGroupIds:
+          - !GetAtt SecurityGroup.GroupId
+        SubnetIds:
+          - { 'Fn::ImportValue': !Sub '${ParentVPCStack}-PrivateSubnetAz1' }
+          - { 'Fn::ImportValue': !Sub '${ParentVPCStack}-PrivateSubnetAz2' }
+      WebserverAccessMode: PUBLIC_ONLY
+      Tags: {
+        "Name": !Ref AWS::StackName,
+        "Environment": !Ref MWWAExecutionEnvironment,
+        "Team": !Ref ServiceTeamOwner
+      }
+    DependsOn:
+      - MwaaExecutionPolicy
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: !Sub "Security Group for Amazon MWAA Environment ${AWS::StackName}-MwaaEnvironment"
+      GroupName: !Sub "airflow-security-group-${AWS::StackName}-MwaaEnvironment"
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref MWWAExecutionEnvironment
+        - Key: ServiceTeamOwner
+          Value: !Ref ServiceTeamOwner
+
+  SecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: "-1"
+      SourceSecurityGroupId: !Ref SecurityGroup
+
+  SecurityGroupEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  MwaaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - airflow-env.amazonaws.com
+                - airflow.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: "/service-role/"
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref MWWAExecutionEnvironment
+        - Key: ServiceTeamOwner
+          Value: !Ref ServiceTeamOwner
+
+  MwaaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment"
+      RetentionInDays: 120
+
+  MwaaDAGProcessingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment-DAGProcessing"
+      RetentionInDays: 120
+
+  MwaaSchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment-Scheduler"
+      RetentionInDays: 120
+
+  MwaaTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment-Task"
+      RetentionInDays: 120
+
+  MwaaWebServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment-WebServer"
+      RetentionInDays: 120
+
+  MwaaWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "airflow-${AWS::StackName}-MwaaEnvironment-Worker"
+      RetentionInDays: 120
+
+  MwaaExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Roles:
+        - !Ref MwaaExecutionRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: airflow:PublishMetrics
+            Resource:
+              - !GetAtt MwaaLogGroup.Arn
+              # - !GetAtt MwaaEnvironment.Arn
+              # - !Sub "arn:aws:airflow:${AWS::Region}:${AWS::AccountId}:environment/${AWS::StackName}-${MWWAExecutionEnvironment}-MwaaEnvironment"
+          - Effect: Allow
+            Action:
+              - "s3:GetObject*"
+              - "s3:PutObject*"
+              - "s3:GetBucket*"
+              - "s3:List*"
+            Resource:
+              - !Sub arn:aws:s3:::${MWWABucketName}
+              - !Sub "arn:aws:s3:::${MWWABucketName}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:CreateLogGroup
+              - logs:PutLogEvents
+              - logs:GetLogEvents
+              - logs:GetLogRecord
+              - logs:GetLogGroupFields
+              - logs:GetQueryResults
+              - logs:DescribeLogGroups
+            Resource:
+              #              - !Sub MwaaLogGroup.Arn
+              #              - !GetAtt MwaaLogGroup.Arn
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:airflow-${AWS::StackName}-MwaaEnvironment-*"
+          - Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - sqs:ChangeMessageVisibility
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ReceiveMessage
+              - sqs:SendMessage
+            Resource:
+              - !Sub "arn:aws:sqs:${AWS::Region}:*:airflow-celery-*"
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - "kms:GenerateDataKey*"
+              - kms:Encrypt
+            NotResource: !Sub "arn:aws:kms:*:${AWS::AccountId}:key/*"
+            Condition:
+              StringLike:
+                "kms:ViaService":
+                  - !Sub "sqs.${AWS::Region}.amazonaws.com"
+          - Effect: Allow
+            Action:
+              - eks:DescribeCluster
+            Resource: !Ref EksClusterArn
+
+Outputs:
+  StackName:
+    Value: !Ref AWS::StackName
+  MWAAEnvironmentName:
+    Value: !Sub "${AWS::StackName}-MwaaEnvironment"
+  MWAAWebUIUrl:
+    Value: !GetAtt MwaaEnvironment.WebserverUrl
+  MWAAArn:
+    Value: !GetAtt MwaaEnvironment.Arn
+  MWAALogLevel:
+    Value: !Ref LogLevel
+  MWWABucketName:
+    Value: !Ref MWWABucketName

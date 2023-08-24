@@ -1,0 +1,8 @@
+FROM secureimages/logstash-oss:7.6.2-alpine-3.11.5
+
+COPY logstash/settings/* /usr/share/logstash/config/
+COPY logstash/entrypoint.sh /entrypoint.sh
+RUN logstash-plugin install logstash-output-amazon_es
+
+WORKDIR /
+ENTRYPOINT /entrypoint.sh

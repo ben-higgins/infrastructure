@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: logstash for environments
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC to launch logstash in"
+    Default: vpc-081784048847290a5
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: subnet-0e040a6be5f309faa
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0a02ee601d742e89f
+  Cidr:
+    Type: String
+    Default: 10.11.0.0/21
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: "SUPPORT"
+  InstanceType:
+    Type: String
+    Default: "t3.small"
+  EbsSize:
+    Type: Number
+    Default: "8"
+  ES:
+    Type: String
+    Default: "https://vpc-reptrak-logging-toojp3pkigkzuxbdjnoi57btc4.eu-central-1.es.amazonaws.com"
+  EnvType:
+    Type: String
+    Default: "qa"
+  DockerImage:
+    Type: String
+    Default: "663946581577.dkr.ecr.us-east-1.amazonaws.com/logstash:latest"
+  PublicIP:
+    Type: String
+    Default: "true"
+  DNSZone:
+    Type: String
+    Default: reptrak.io
+  DNSZoneID:
+    Type: String
+    Default: Z123KCZIVJ9B18
+
+Resources:
+
+  LogstashRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  LogstashPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "root"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action: "*"
+            Resource: "*"
+          - Effect: "Allow"
+            Action: "es:*"
+            Resource: "arn:aws:es:us-east-1:796026647601:domain/k8s-es01/*"
+      Roles:
+        - !Ref LogstashRole
+
+  LogstashRoleProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref LogstashRole
+      InstanceProfileName:
+        !Join
+        - '-'
+        - - 'logstash'
+          - !Ref AWS::StackName
+
+  LogstashPorts:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow vpn access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5044
+          ToPort: 5044
+          CidrIp: !Ref Cidr
+
+
+  LogstashLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          quickstart:
+            - "package-install"
+            - "update-docker-group"
+            - "start-docker"
+        package-install:
+          commands:
+            install:
+              command: yum install docker -y
+        update-docker-group:
+          commands:
+            usermod:
+              command: usermod -a -G docker ec2-user
+        start-docker:
+          services:
+            sysvinit:
+              docker:
+                enabled: "true"
+                ensureRunning: "true"
+    Properties:
+      "AssociatePublicIpAddress": !Ref PublicIP
+      IamInstanceProfile: !Ref LogstashRoleProfile
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref LogstashPorts
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sdk"
+          Ebs:
+            VolumeSize: !Ref EbsSize
+        - DeviceName: "/dev/sdc"
+          VirtualName: ephemeral0
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -v
+          env
+
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init \
+             --stack ${AWS::StackName} \
+             --resource LogstashLaunchConfig \
+             --region ${AWS::Region} \
+             --configsets quickstart
+
+          $(aws ecr get-login --no-include-email --region us-east-1)
+          docker pull ${DockerImage}
+
+          docker run -d \
+            -e ENV=${EnvType} \
+            -e ES=${ES} \
+            -e ES_PORT=443 \
+            -e REGION=${AWS::Region} \
+            -p 5044:5044 \
+            --name logstash \
+            ${DockerImage}
+
+          # Signal results
+          /opt/aws/bin/cfn-signal -e $? \
+             --stack ${AWS::StackName} \
+             --resource LogstashLaunchConfig \
+             --region ${AWS::Region} \
+             --reason "CFN config setup exited with value $?."
+
+  LogstashAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref Subnets
+      LaunchConfigurationName: !Ref LogstashLaunchConfig
+      HealthCheckGracePeriod: 720
+      MinSize: '1'
+      MaxSize: '1'
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+          PropagateAtLaunch: true
+

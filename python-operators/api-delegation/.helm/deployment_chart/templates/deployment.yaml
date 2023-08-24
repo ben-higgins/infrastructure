@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+    spec:
+      serviceAccountName: {{ .Values.serviceName }}
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"

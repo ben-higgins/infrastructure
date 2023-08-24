@@ -1,0 +1,18 @@
+## deployment options
+DeployVPC: true
+DeployRedshift: false
+DeployEKS: true
+DeployElasticache: true
+DeployWAF: true
+DeployMySQLRDS: false
+DeployMySQLReplica: false
+DeployPGSQLRDS: false
+DeployPGSQLReplica: false
+DeployAuroraPostgres: false
+DeployAuroraMySQL: false
+DeployDocumentDB: true
+DeployMWAA: false
+DeployPowerBIGateway: false
+DeployCloudfront: false
+
+EnableVPCTransit: true

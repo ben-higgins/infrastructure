@@ -1,0 +1,10 @@
+RedshiftSrcClusterRegion: eu-central-1
+
+# If RedshiftCreateLatestSnapshot and RedshiftRestoreSpecificSnapshot are not set then redshift will be created with the latest available snapshot
+
+# If we want to have a redshift cluster created with a new backup, set it to true
+RedshiftCreateLatestSnapshot: true
+
+# If we want to have a redshift cluster created with a specific point in time backup, then RedshiftCreateLatestSnapshot should be false and
+# RedshiftRestoreSpecificSnapshot parameter must have the name of that specific snapshot
+# RedshiftRestoreSpecificSnapshot: copy:rs:ri-app-dev-rs-2021-10-18-13-31-42

@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Airfox API monitor
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC to launch VPN in"
+    Default: vpc-02dd6399991f7a8e9
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: subnet-0a2a0b50e682e2a98
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-009d6802948d06e52
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: "api-monitoring"
+  InstanceType:
+    Type: String
+    Default: "t2.micro"
+  EbsSize:
+    Type: Number
+    Default: "8"
+  ApiName:
+    Type: String
+    Default: "wallet,viavarejostatus,coordinator,api-gateway,analytics,user-management"
+  DebugMode:
+    Type: String
+    Default: "alerts"
+    AllowedValues: ["alerts", "debug"]
+  ElasticSearchServer:
+    Type: String
+    Default: "vpc-k8s-es01-lv4zyglxgwnosxuhw4vwsoavpm.us-east-1.es.amazonaws.com"
+  AnalyticsKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+  EnvType:
+    Type: String
+    Default: "prod"
+  SecretsRegion:
+    Type: String
+    Default: "us-east-1"
+  DockerImage:
+    Type: String
+    Default: "796026647601.dkr.ecr.us-east-1.amazonaws.com/airfox-api-monitor:latest"
+  PingFrequency:
+    Type: Number
+    Default: 300
+  ApiGatewayUrl:
+    Type: String
+    Default: ""
+  PublicIP:
+    Type: String
+    Default: "true"
+  PayloadFile:
+    Type: String
+    Default: "preprod-payloads.json"
+Resources:
+
+  ApiMonitorCloudwatchRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ec2.amazonaws.com"
+          Action:
+          - "sts:AssumeRole"
+      Path: "/"
+
+  ApiMonitorCloudwatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "root"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Action: "*"
+          Resource: "*"
+        - Effect: "Allow"
+          Action: "es:*"
+          Resource: "arn:aws:es:us-east-1:796026647601:domain/k8s-es01/*"
+      Roles:
+      - !Ref ApiMonitorCloudwatchRole
+
+  ApiMonitorCloudwatchRoleProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref ApiMonitorCloudwatchRole
+      InstanceProfileName:
+        !Join
+          - '-'
+          - - 'ApiMonitor'
+            - !Ref AWS::StackName
+
+  ApiMonitorPorts:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow vpn access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+
+  ApiCloudwatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+      RetentionInDays: 30
+
+  ApiMonitorLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          quickstart:
+          - "package-install"
+          - "update-docker-group"
+          - "start-docker"
+        package-install:
+          commands:
+            install:
+              command: amazon-linux-extras install docker
+        update-docker-group:
+          commands:
+            usermod:
+              command: usermod -a -G docker ec2-user
+        start-docker:
+          services:
+            sysvinit:
+              docker:
+                enabled: "true"
+                ensureRunning: "true"
+    Properties:
+      "AssociatePublicIpAddress": !Ref PublicIP
+      IamInstanceProfile: !Ref ApiMonitorCloudwatchRoleProfile
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+      - !Ref ApiMonitorPorts
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sdk"
+        Ebs:
+          VolumeSize: !Ref EbsSize
+      - DeviceName: "/dev/sdc"
+        VirtualName: ephemeral0
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -v
+          env
+
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init \
+             --stack ${AWS::StackName} \
+             --resource ApiMonitorLaunchConfig \
+             --region ${AWS::Region} \
+             --configsets quickstart
+
+          $(aws ecr get-login --no-include-email --region us-east-1)
+          docker pull ${DockerImage}
+
+          IFS=","
+          apis="${ApiName}"
+
+          for api in $apis
+          do
+            docker run -d \
+              --name $api \
+              -e API_NAME=$api \
+              -e LOG_LEVEL=${DebugMode} \
+              -e ENV_TYPE=${EnvType} \
+              -e REGION_NAME=${SecretsRegion} \
+              -e ES_SERVER=${ElasticSearchServer} \
+              -e ANALYTICS_KEY=${AnalyticsKey} \
+              -e PING_FREQUENCY=${PingFrequency} \
+              -e ANALYTICS_URL=${ApiGatewayUrl} \
+              -e PAYLOAD_FILE=${PayloadFile} \
+              --log-driver=awslogs \
+              --log-opt awslogs-group=${AWS::StackName} \
+              --restart always \
+              ${DockerImage}
+          done
+
+          # Signal results
+          /opt/aws/bin/cfn-signal -e $? \
+             --stack ${AWS::StackName} \
+             --resource ApiMonitorLaunchConfig \
+             --region ${AWS::Region} \
+             --reason "CFN config setup exited with value $?."
+
+  ApiMonitorAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref Subnets
+      LaunchConfigurationName: !Ref ApiMonitorLaunchConfig
+      HealthCheckGracePeriod: 720
+      MinSize: '1'
+      MaxSize: '1'
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+        PropagateAtLaunch: true

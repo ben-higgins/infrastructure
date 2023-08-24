@@ -1,0 +1,8 @@
+# Default values for aws-auth-eks.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+Auth:
+  RoleARN: arn:aws:iam::663946581577:role/master-Eks-100S5IWNX8Z0L-NodeInstanceRole-V48QZVCGOGZE
+  UserARN: arn:aws:iam::663946581577:user/bhiggins@reputationinstitute.com
+  UserName: bhiggins@reputationinstitute.com

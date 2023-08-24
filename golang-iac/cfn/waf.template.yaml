@@ -1,0 +1,164 @@
+Description: Create WAF WebACL
+Parameters:
+  Name:
+    Type: String
+
+Resources:
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${Name}-webacl
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: WebACLMetric
+      Rules:
+        - Name: AWSManagedRulesAmazonIpReputationList
+          Priority: 0
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAmazonIpReputationList
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+              ExcludedRules: []
+        - Name: AWSManagedRulesAnonymousIpList
+          Priority: 1
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAnonymousIpList
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAnonymousIpList
+              ExcludedRules: []
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 2
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules: []
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 3
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesKnownBadInputsRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              ExcludedRules: []
+        - Name: AWSManagedRulesLinuxRuleSet
+          Priority: 4
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesLinuxRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesLinuxRuleSet
+              ExcludedRules: []
+        - Name: AWSManagedRulesWindowsRuleSet
+          Priority: 5
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesWindowsRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesWindowsRuleSet
+              ExcludedRules: []
+        - Name: BlockXssAttack
+          Priority: 6
+          Action:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: BlockXssAttack
+          Statement:
+            XssMatchStatement:
+              FieldToMatch:
+                AllQueryArguments: {}
+              TextTransformations:
+                - Priority: 1
+                  Type: NONE
+        - Name: Captcha
+          Priority: 7
+          Action:
+            Captcha: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: Captcha
+          Statement:
+            LabelMatchStatement:
+              Scope: NAMESPACE
+              Key: 'awswaf:managed:aws:'
+
+  WAFCloudwatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        !Join
+        - '-'
+        - - 'aws-waf-logs'
+          - !Ref Name
+          - !Ref AWS::Region
+      RetentionInDays: 14
+
+  WebAclLogging:
+    DependsOn:
+      - WAFCloudwatchLogGroup
+      - WebACL
+    Type: 'AWS::WAFv2::LoggingConfiguration'
+    Properties:
+      ResourceArn: !GetAtt
+        - WebACL
+        - Arn
+      LogDestinationConfigs:
+        - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:aws-waf-logs-${Name}-${AWS::Region}'
+      LoggingFilter:
+        DefaultBehavior: DROP
+        Filters:
+          - Behavior: KEEP
+            Conditions:
+              - ActionCondition:
+                  Action: CAPTCHA
+            Requirement: MEETS_ANY
+
+Outputs:
+  WafAclArn:
+    Value: !GetAtt WebACL.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-WebAclArn
+  WafAclId:
+    Value: !GetAtt WebACL.Id
+    Export:
+      Name: !Sub ${AWS::StackName}-WebAclId

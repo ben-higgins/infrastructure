@@ -1,0 +1,138 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Cloudfront Template
+Parameters:
+  EnvName:
+    Type: String
+  Name:
+    Type: String
+  Bucket:
+    Type: String
+  DeployBucketPrefix:
+    Type: String
+  DefaultTTL:
+    Type: Number
+  dnsFqdnEntry:
+    Type: String
+
+Resources:
+  CachePolicy:
+    Type: "AWS::CloudFront::CachePolicy"
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "CachePolicy-${AWS::StackName}"
+        DefaultTTL: !Ref DefaultTTL
+        MaxTTL: 31536000
+        MinTTL: 1
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: "none"
+          HeadersConfig:
+            HeaderBehavior: "none"
+          QueryStringsConfig:
+            QueryStringBehavior: "all"
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+
+  OriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "OriginRequestPolicy-${AWS::StackName}"
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            # - Host # Only add Host header if origin is an ALB and not a FQDN
+            - Accept
+            - Origin
+            - Referer
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
+        QueryStringsConfig:
+          QueryStringBehavior: "all"
+        CookiesConfig:
+          CookieBehavior: "all"
+
+  ResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "ResponseHeadersPolicy-${AWS::StackName}"
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlMaxAgeSec: 600
+          OriginOverride: true
+          AccessControlAllowHeaders:
+            Items:
+              - "*"
+          AccessControlAllowMethods:
+            Items:
+              - "ALL"
+          AccessControlAllowOrigins:
+            Items:
+              - "*"
+          AccessControlExposeHeaders:
+            Items:
+              - "*"
+
+  CloudfrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Join
+              - ""
+              - - "origin-"
+                - !Ref dnsFqdnEntry
+            Id: "Backend"
+            CustomOriginConfig:
+              HTTPPort: "80"
+              HTTPSPort: "443"
+              OriginProtocolPolicy: "https-only"
+              OriginKeepaliveTimeout: 5
+              OriginReadTimeout: 60
+              OriginSSLProtocols:
+                - TLSv1.2
+        Enabled: true
+        Comment: !Join
+          - " "
+          - - "Cloudfront for "
+            - !Ref dnsFqdnEntry
+        Aliases:
+          - !Ref dnsFqdnEntry
+        HttpVersion: "http2"
+        IPV6Enabled: true
+        Logging:
+          Bucket: "reptrak-cloudfront-logs.s3.amazonaws.com"
+          IncludeCookies: false
+          Prefix: !Join
+              - ""
+              - - !Ref dnsFqdnEntry
+                - "/"
+        PriceClass: "PriceClass_200"
+        DefaultCacheBehavior:
+          TargetOriginId: "Backend"
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          ViewerProtocolPolicy: "redirect-to-https"
+          CachePolicyId: !Ref "CachePolicy"
+          OriginRequestPolicyId: !Ref "OriginRequestPolicy"
+          ResponseHeadersPolicyId: !Ref "ResponseHeadersPolicy"
+        ViewerCertificate:
+          AcmCertificateArn: "arn:aws:acm:us-east-1:663946581577:certificate/74ee80b4-51d3-40a3-8124-7da9d789e370"
+          MinimumProtocolVersion: "TLSv1.2_2021"
+          SslSupportMethod: "sni-only"
+Outputs:
+  DistributionId:
+    Value: !Ref CloudfrontDistribution

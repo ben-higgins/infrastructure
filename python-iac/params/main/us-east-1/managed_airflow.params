@@ -1,0 +1,4 @@
+MWWAEnvironmentClass: mw1.small
+MWAAServiceTeamOwner: dbeng
+MWAAMaxWorkers: 2
+MWAALogLevel: INFO

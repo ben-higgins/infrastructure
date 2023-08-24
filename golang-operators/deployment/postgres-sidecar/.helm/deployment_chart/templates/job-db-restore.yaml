@@ -1,0 +1,33 @@
+{{ if eq .Values.RegionActingAs "master" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-{{ .Values.serviceName }}-restore-dbs
+spec:
+  template:
+    metadata:
+      labels:
+        job: {{ .Values.serviceName }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: job-{{ .Values.serviceName }}-db-restore
+          image: {{ .Values.container.image }}
+          env:
+            - name: REGION
+              value: {{ .Values.region }}
+            - name: ENV
+              value: {{ .Values.envType }}
+            - name: ACTION
+              value: restore
+            - name: LOCALDEV
+              value: "false"
+            - name: BUCKET
+              value: {{ .Values.bucket }}
+            {{ range $key, $value := .Values.envs }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{ end }}
+      restartPolicy: Never
+{{ end }}

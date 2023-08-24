@@ -1,0 +1,476 @@
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create Lambda that will be triggerd to create Cloudfront using Cloudformation
+Parameters:
+  Bucket:
+    Type: String
+  DeployBucketPrefix:
+    Type: String
+  envName:
+    Type: String
+  DefaultTTL:
+    Type: Number
+
+Resources:
+  CreateCFLambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/CloudFrontFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
+        - "arn:aws:iam::aws:policy/AWSCloudFormationFullAccess"
+
+  CreateCFLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ZipFile: !Sub |
+          import os
+          import time
+          import boto3
+          from boto3.resources.base import ServiceResource
+          from pprint import pprint
+          from typing import Any, Dict, List
+
+
+          class AwsClientFactory:
+              __client: Dict[str, boto3.session.Session.client] = {}
+              __resource: Dict[str, ServiceResource] = {}
+
+              @classmethod
+              def get_client(cls, region: str, service: str) -> boto3.session.Session.client:
+                  client_key = f"{region}-{service}"
+                  if client_key not in cls.__client:
+                      cls.__client[client_key] = boto3.client(service, region_name=region)
+                  return cls.__client[client_key]
+
+              @classmethod
+              def get_resource(cls, region: str, resource: str) -> ServiceResource:
+                  resource_key = f"{region}-{resource}"
+                  if resource_key not in cls.__resource:
+                      cls.__resource[resource_key] = boto3.resource(resource, region_name=region)
+                  return cls.__resource[resource_key]
+
+          class AwsServiceManager:
+              __client: Dict[str, boto3.session.Session.client] = {}
+              __resource: Dict[str, ServiceResource] = {}
+              factory = AwsClientFactory
+              service: str = None
+
+              @classmethod
+              def get_client(cls, region) -> boto3.session.Session.client:
+                  if not cls.service:
+                      raise Exception("Service not defined. Please set this property in your class")
+
+                  client_key = f"{region}-{cls.service}"
+                  if client_key not in cls.__client:
+                      cls.__client[client_key] = cls.factory.get_client(region, cls.service)
+                  return cls.__client[client_key]
+
+              @classmethod
+              def get_resource(cls, region) -> boto3.session.Session.client:
+                  if not cls.service:
+                      raise Exception("Service not defined. Please set this property in your class")
+
+                  client_key = f"{region}-{cls.service}"
+                  if client_key not in cls.__resource:
+                      cls.__resource[client_key] = cls.factory.get_resource(region, cls.service)
+                  return cls.__resource[client_key]
+
+          class CloudformationManager(AwsServiceManager):
+              service = "cloudformation"
+              PROTECTED_ENVS = ["main"]
+
+              @classmethod
+              def stack_status(cls, region: str, stack_name: str):
+                  client = cls.get_client(region)
+                  try:
+                      response = client.describe_stacks(StackName=stack_name)
+                      results = response["Stacks"][0]["StackStatus"]
+                  except Exception:
+                      results = "DELETED"
+                  return results
+
+              @classmethod
+              def get_service_stack_name(cls, region, environment: str, service_name: str) -> str:
+                  response = cls.get_available_stacks(region)
+
+                  for key in response["StackSummaries"]:
+                      if f"{environment}-{service_name}" in key["StackName"]:
+                          return key["StackName"]
+
+                  raise Exception(f"No cloudformation stack found in {region} region for service {service_name}")
+
+              @classmethod
+              def describe_stacks(cls, region, stack_name: str) -> Dict[str, Any]:
+                  client = cls.get_client(region)
+                  return client.describe_stacks(StackName=stack_name)
+
+              @classmethod
+              def describe_stack(cls, region, stack_name: str) -> Dict[str, Any]:
+                  client = cls.get_client(region)
+                  return client.describe_stacks(StackName=stack_name)["Stacks"][0]
+
+              @classmethod
+              def get_stack_outputs(cls, region, stack_name: str) -> List[Dict[str, Any]]:
+                  response = cls.describe_stacks(region, stack_name)
+                  return response["Stacks"][0]["Outputs"]
+
+              @classmethod
+              def get_available_stacks(cls, region):
+                  client = cls.get_client(region)
+                  response = client.list_stacks(
+                      StackStatusFilter=[
+                          "CREATE_COMPLETE",
+                          "ROLLBACK_FAILED",
+                          "ROLLBACK_COMPLETE",
+                          "UPDATE_COMPLETE",
+                          "UPDATE_ROLLBACK_COMPLETE",
+                      ]
+                  )
+
+                  if len(response["StackSummaries"]) == 0:
+                      raise Exception("No cloudformation stack found in " + region + " region")
+
+                  return response
+
+              @classmethod
+              def stack_exist(cls, region, env_name):
+                  client = cls.get_client(region)
+                  response = client.list_stacks(
+                      StackStatusFilter=[
+                          "CREATE_COMPLETE",
+                          "ROLLBACK_IN_PROGRESS",
+                          "ROLLBACK_FAILED",
+                          "ROLLBACK_COMPLETE",
+                          "UPDATE_IN_PROGRESS",
+                          "UPDATE_COMPLETE",
+                          "UPDATE_ROLLBACK_FAILED",
+                          "UPDATE_ROLLBACK_COMPLETE",
+                      ]
+                  )
+
+                  stack_list = response["StackSummaries"]
+                  for item in stack_list:
+                      if env_name == item["StackName"]:
+                          return item["StackName"]
+
+                  return None
+
+              @classmethod
+              def create_stack(cls, region: str, env_name: str, template: str, params: List[Dict[str, str]], env_type: str):
+                  client = cls.get_client(region)
+
+                  # prevent main branch deployments from being deleted
+                  protect = False
+                  if env_name in cls.PROTECTED_ENVS:
+                      protect = True
+
+                  return client.create_stack(
+                      StackName=env_name,
+                      TemplateURL=template,
+                      Parameters=params,
+                      DisableRollback=True,
+                      Capabilities=["CAPABILITY_NAMED_IAM"],
+                      Tags=[{"Key": "Environment", "Value": env_type}],
+                      EnableTerminationProtection=protect,
+                  )
+
+              @classmethod
+              def update_stack(cls, region, env_name, template, params):
+                  client = cls.get_client(region)
+                  return client.update_stack(
+                      StackName=env_name,
+                      TemplateURL=template,
+                      UsePreviousTemplate=False,
+                      Parameters=params,
+                      Capabilities=["CAPABILITY_NAMED_IAM"],
+                  )
+
+              @classmethod
+              def create_change_set(cls, region: str, env_name: str, template: str, params: List[Dict[str, str]], env_type: str):
+                  client = cls.get_client(region)
+
+                  return client.create_change_set(
+                      StackName=env_name,
+                      ChangeSetName=env_name,
+                      TemplateURL=template,
+                      IncludeNestedStacks=True,
+                      Parameters=params,
+                      Capabilities=["CAPABILITY_NAMED_IAM"],
+                      Tags=[{"Key": "Environment", "Value": env_type}],
+                  )
+
+              @classmethod
+              def change_set_status(cls, region: str, stack_name: str, change_set_name: str):
+                  client = cls.get_client(region)
+                  try:
+                      response = client.describe_change_set(StackName=stack_name,ChangeSetName=change_set_name)
+                      results = response["Status"]
+                  except Exception:
+                      results = "N/A"
+                  return results
+
+              @classmethod
+              def change_set_status_reason(cls, region: str, stack_name: str, change_set_name: str):
+                  client = cls.get_client(region)
+                  try:
+                      response = client.describe_change_set(StackName=stack_name,ChangeSetName=change_set_name)
+                      results = response["StatusReason"]
+                  except Exception:
+                      results = "N/A"
+                  return results
+
+              @classmethod
+              def change_set_status_changes(cls, region: str, stack_name: str, change_set_name: str):
+                  client = cls.get_client(region)
+                  try:
+                      response = client.describe_change_set(StackName=stack_name,ChangeSetName=change_set_name)
+                      results = response["Changes"]
+                  except Exception:
+                      results = "N/A"
+                  return results
+
+              @classmethod
+              def execute_change_set(cls, region: str, stack_name: str, change_set_name: str):
+                  client = cls.get_client(region)
+
+                  return client.execute_change_set(StackName=stack_name,ChangeSetName=change_set_name)
+
+              @classmethod
+              def delete_change_set(cls, region: str, stack_name: str, change_set_name: str):
+                  client = cls.get_client(region)
+                  try:
+                      response = client.delete_change_set(StackName=stack_name,ChangeSetName=change_set_name)
+                      if response["ResponseMetadata"]["HTTPStatusCode"] == 200:
+                          results = "DELETED"
+                  except Exception:
+                      results = "N/A"
+                      raise
+                  return results
+
+              @classmethod
+              def delete_stack(cls, region, env_name):
+                  client = cls.get_client(region)
+                  return client.delete_stack(StackName=env_name)
+
+
+          def build_params(event, context):
+              params = []
+
+              params.append({'ParameterKey': 'EnvName', 'ParameterValue': os.environ['envName']})
+              params.append({'ParameterKey': 'Name', 'ParameterValue': os.environ['AWS_REGION']})
+              params.append({'ParameterKey': 'Bucket', 'ParameterValue': os.environ['Bucket']})
+              params.append({'ParameterKey': 'DeployBucketPrefix', 'ParameterValue': os.environ['git_hash']})
+              params.append({'ParameterKey': 'DefaultTTL', 'ParameterValue': os.environ['DefaultTTL']})
+              params.append({'ParameterKey': 'dnsFqdnEntry', 'ParameterValue': event['dnsFqdnEntry']})
+
+              return params
+
+          
+          def invalidate_cache(stackname,region):
+            try:
+              client = boto3.client('cloudformation', region_name=region)
+              response = client.describe_stacks(
+                  StackName=stackname
+              )
+            except:
+              print(f'Failed to retrieve stack using: {stackname} in region {region}')
+              print(response)
+          
+            try:
+              for key in response['Stacks'][0]['Outputs']:
+                  if key['OutputKey'] == "DistributionId":
+                      id = key['OutputValue']
+          
+            except:
+              print('Failed to parse json from stack output')
+              print(response)
+          
+            nano_sec = time.time_ns()
+            client = boto3.client('cloudfront')
+            
+            try:
+              response = client.create_invalidation(
+                  DistributionId=id,
+                  InvalidationBatch={
+                      'Paths': {
+                          'Quantity': 1,
+                          'Items': [
+                              '/*',
+                          ]
+                      },
+                      'CallerReference': str(nano_sec)
+                  }
+              )
+              print(f'Cloudfront Distribution Cache has been cleared. {response}')
+            except:
+              print('Failed to invalidate Distribution')
+
+
+
+          def lambda_handler(event, context):
+
+              action = event['action']
+              dnsName = event['dnsName']
+              dnsFqdnEntry = event['dnsFqdnEntry']
+              env_name = os.environ['envName']
+              git_hash = os.environ['git_hash']
+              region = os.environ['AWS_REGION']
+              stackName = f"{env_name}-cloudfront-{dnsName}"
+              ChangeSetName = stackName
+              Bucket = os.environ['Bucket']
+
+              #prepare params - need params from files
+              params = build_params(event, context)
+
+              print(f"Performing {action} operation for {stackName} in {region} region")
+
+              # Just for debugging
+              print("")
+              print(f"Params of {region} region are: ")
+              for param in params:
+                  print("{:30s} {:s}".format(param['ParameterKey'] + ': ', param['ParameterValue']))
+              print("")
+
+              if action == "Delete":
+                  CloudformationManager.delete_stack(region, stackName)
+
+                  time.sleep(5)
+                  status = CloudformationManager.stack_status(region, stackName)
+
+                  while status not in "DELETE_COMPLETE, DELETE_FAILED, DELETED":
+                      time.sleep(10)
+                      status = CloudformationManager.stack_status(region, stackName)
+                      print(f"{stackName}/{region} stack status: {status}")
+
+                  if status == "DELETE_FAILED":
+                      return {"StackActionStatus": "Failed"}
+                      exit(1)
+
+              else:
+                  # check if exists
+                  stack_name = CloudformationManager.stack_exist(region, stackName)
+
+                  template = (
+                      "https://s3.amazonaws.com/"
+                      + Bucket
+                      + "/"
+                      + env_name
+                      + "/"
+                      + git_hash
+                      + "/cloudfront.template.yaml"
+                  )
+                  # build if stackName doesn't exist
+                  if stack_name is None:
+                      # launch build
+                      CloudformationManager.create_stack(region, stackName, template, params, env_name)
+
+                      time.sleep(5)
+                      status = CloudformationManager.stack_status(region, stackName)
+                      print(f"{stackName}/{region} stack status: {status}")
+
+                      while status != "CREATE_COMPLETE":
+                          time.sleep(10)
+                          status = CloudformationManager.stack_status(region, stackName)
+
+                          #exit if build fails
+                          if status == "CREATE_FAILED":
+
+                              details = CloudformationManager.describe_stacks(region, stackName)
+                              pprint(details, indent=4)
+                              return {"StackActionStatus": "Failed"}
+                              exit(1)
+
+                          print(f"{stackName}/{region} stack status: {status}")
+
+                  # update if the stack exists
+                  elif stack_name is not None:
+                      status = CloudformationManager.stack_status(region, stack_name)
+
+                      if status not in "DELETE_COMPLETE, DELETE_FAILED":
+                          #run invalidation to clear cache
+                          invalidate_cache(stackName,region)
+                          
+                          # launch build
+                          print(f"Creating Cloudformation change set for {stackName}/{region}")
+                          CloudformationManager.create_change_set(region, stackName, template, params, env_name)
+
+                          time.sleep(5)
+                          changeset_status = CloudformationManager.change_set_status(region, stackName, ChangeSetName)
+                          print(f"{stackName}/{region} change set status: {changeset_status}")
+
+                          while changeset_status not in "CREATE_COMPLETE, FAILED":
+                              time.sleep(5)
+
+                              changeset_status = CloudformationManager.change_set_status(region, stackName, ChangeSetName)
+                              print(f"{stackName}/{region} change set status: {changeset_status}")
+
+                          #exit if change set creation fails
+                          if changeset_status == "FAILED":
+                              changeset_reason = CloudformationManager.change_set_status_reason(region, stackName, ChangeSetName)
+                              print(f"{stackName}/{region} change set reason: {changeset_reason}")
+
+                              print(f"Deleting change set for {stackName}/{region}")
+                              delete_changeset = CloudformationManager.delete_change_set(region, stackName, ChangeSetName)
+                              print(f"{stackName}/{region} change set status: {delete_changeset}")
+
+                              status = CloudformationManager.stack_status(region, stackName)
+                              print(f"{stackName}/{region} stack status: No update required")
+
+                          elif changeset_status == "CREATE_COMPLETE":
+                              changeset_changes = CloudformationManager.change_set_status_changes(region, stackName, ChangeSetName)
+                              print(f"{stackName}/{region} change set changes:")
+                              pprint(changeset_changes)
+
+                              # execute change set
+                              CloudformationManager.execute_change_set(region, stackName, ChangeSetName)
+
+                              time.sleep(5)
+                              status = CloudformationManager.stack_status(region, stackName)
+                              print(f"{stackName}/{region} stack status: {status}")
+
+                              while status not in "UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE":
+                                  time.sleep(10)
+                                  status = CloudformationManager.stack_status(region, stackName)
+                                  print(f"{stackName}/{region} stack status: {status}")
+
+                                  #exit if build failed. probably will need more status verbs than 1
+                                  if status == "UPDATE_ROLLBACK_COMPLETE'":
+                                      details = CloudformationManager.describe_stacks(region, stackName)
+                                      pprint(details, indent=4)
+                                      return {"StackActionStatus": "Failed"}
+                                      exit(1)
+
+              return {"StackActionStatus": "Success"}
+      Description: 'Lambda that will trigger Cloudformation'
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt CreateCFLambdaIAMRole.Arn
+      Runtime: python3.9
+      Environment:
+        Variables:
+          Bucket: !Ref Bucket
+          git_hash: !Ref DeployBucketPrefix
+          envName: !Ref envName
+          DefaultTTL: !Ref DefaultTTL
+      Timeout: 900
+
+Outputs:
+  CreateCFLambdaARN:
+    Value: !GetAtt CreateCFLambda.Arn

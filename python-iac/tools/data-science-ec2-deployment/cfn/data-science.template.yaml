@@ -1,0 +1,666 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy Data Science EC2 into a Engineering VPC
+Parameters:
+  LinuxDistribution:
+    Type: String
+  EngineerName:
+    Type: String
+  EngineerEmailAddress:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    # Engineering VPC
+    Default: vpc-055d5c751a1face8b
+  Subnet:
+    Type: AWS::EC2::Subnet::Id
+    # AZ1 private subnet of engineering VPC
+    Default: subnet-0272d8128c13b14ee
+  CrowdstrikeSecretARN:
+    Type: String
+    # AWS Secret in e-west-1 that has Crowdstrike CID
+    Default: arn:aws:secretsmanager:eu-west-1:115885740105:secret:crowdstrike-cid-pShTbn
+  AmiId:
+    Type: AWS::EC2::Image::Id
+  InstanceType:
+    Type: String
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  VolumeSize:
+    Type: Number
+  VolumeType:
+    Type: String
+  VolumeIops:
+    Type: Number
+  EC2IdleHours:
+    Type: Number
+    Default: 8
+    Description: 'Number of Hours after which idle EC2 will be shutdown'
+  EC2IdleCPUThreshold:
+    Type: Number
+    Default: 2
+    Description: 'CPU Utilization threshold below which the EC2 will be shutdown'
+
+Conditions:
+  ChangeEBSIops: !Equals [ !Ref VolumeType, "io1"]
+  UbuntuLinux: !Equals [ !Ref LinuxDistribution, "Ubuntu"]
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Security group for ${AWS::StackName} EC2"
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.12.24.0/21
+
+  AllowReadSecretIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - secretsmanager:GetResourcePolicy
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret
+            - secretsmanager:ListSecretVersionIds
+            Effect: Allow
+            Resource:
+            - !Ref CrowdstrikeSecretARN
+
+  InstanceIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref AllowReadSecretIAMPolicy
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+
+  InstanceIAMProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+      - !Ref 'InstanceIAMRole'
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: 'AWS Notification'
+
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref EngineerEmailAddress
+      Protocol: email
+      TopicArn: !Ref SNSTopic
+
+  IdleCPUShutdownEC2:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - !Ref 'SNSTopic'
+        - !Sub "arn:aws:automate:${AWS::Region}:ec2:stop"
+      ComparisonOperator: 'LessThanThreshold'
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref 'EC2Instance'
+      EvaluationPeriods: !Ref EC2IdleHours
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '3600'
+      Statistic: Average
+      Threshold: !Ref EC2IdleCPUThreshold
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          # All of the config keys (group of actions) that we want to be applied once, those must go in installation configset
+          installation:
+            - 01_setup-cfn-hup
+            - 02_amazon-cloudwatch-agent
+            - 03_install_crowdstrike
+          # All of the config keys (group of actions) that we want to be re-applied if and when they are changed, those must go in reconfiguration configset
+          reconfiguration:
+            - 02_amazon-cloudwatch-agent
+            - 03_install_crowdstrike
+            # In here, we can later add as many reconfiguration config keys as we want
+
+        # cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents in the metadata section, cfn-hup will call cfn-init.
+        01_setup-cfn-hup:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+                interval=5
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2Instance --configsets reconfiguration --region ${AWS::Region}
+                runas=root
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /lib/systemd/system/cfn-hup.service:
+              content: !Sub |
+                [Unit]
+                Description=cfn-hup daemon
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup
+                Restart=always
+                [Install]
+                WantedBy=multi-user.target
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01-Enable-cfn-hup:
+              command: /usr/bin/env bash -c 'if [[ $(ps --no-headers -o comm 1) == "systemd" ]]; then systemctl enable cfn-hup.service; else chkconfig cfn-hup on; fi'
+            02-Start-cfn-hup:
+              command: /usr/bin/env bash -c 'if [[ $(ps --no-headers -o comm 1) == "systemd" ]]; then systemctl start cfn-hup.service; else service cfn-hup start; fi'
+
+        # Definition of json configuration of AmazonCloudWatchAgent
+        02_amazon-cloudwatch-agent:
+          files:
+            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:
+              content: !Sub |
+                {
+                  "agent":{
+                      "metrics_collection_interval":300,
+                      "run_as_user":"cwagent"
+                  },
+                	"metrics": {
+                    "aggregation_dimensions":[
+                        [
+                            "InstanceId"
+                        ]
+                    ],
+                		"append_dimensions": {
+                			"InstanceId": "${!aws:InstanceId}"
+                		},
+                		"metrics_collected": {
+                			"mem": {
+                				"measurement": ["mem_used_percent"]
+                			},
+                			"disk": {
+                				"measurement": ["disk_used_percent"],
+                        "resources": ["/"]
+                			}
+                		}
+                	}
+                }
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01-StopService:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+            02-StartService:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+        # Creating the bash scripts on EC2 Instance
+        03_install_crowdstrike:
+          files:
+            /usr/bin/crowdstrike:
+              content: !Sub |
+                #!/bin/bash
+
+                LINUX_DISTRO=$(awk -F= '/^NAME/{print $2}' /etc/*-release | sed -e 's;";;g')
+
+                if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+                  apt -qq update && apt -qq -y dist-upgrade && apt -qq -y autoremove
+                  apt -qq -y install unzip curl
+
+                  apt -qq -y remove awscli
+                  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                  unzip -oq awscliv2.zip
+                  ./aws/install --update
+
+                  apt -qq -y install libnl-3-200 libnl-genl-3-200
+                  /usr/local/bin/aws s3 cp s3://reptrak-crowdstrike-installer/falcon-sensor_6.38.0-13501_amd64.deb . --only-show-errors
+                  dpkg -i falcon-sensor_6.38.0-13501_amd64.deb
+                  CID=$(/usr/local/bin/aws secretsmanager get-secret-value --secret-id crowdstrike-cid --query SecretString --output text | cut -d: -f2 | tr -d \"})
+                  /opt/CrowdStrike/falconctl -s -f --cid=$CID
+                  systemctl start falcon-sensor.service
+
+                elif [ "$LINUX_DISTRO" == "Debian GNU/Linux" ]; then
+                  apt -qq update && apt -qq -y dist-upgrade && apt -qq -y autoremove
+                  apt -qq -y install unzip curl
+
+                  apt -qq -y remove awscli
+                  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                  unzip -oq awscliv2.zip
+                  ./aws/install --update
+
+                  apt -qq -y install libnl-3-200 libnl-genl-3-200
+                  /usr/local/bin/aws s3 cp s3://reptrak-crowdstrike-installer/falcon-sensor_6.38.0-13501_amd64.deb . --only-show-errors
+                  dpkg -i falcon-sensor_6.38.0-13501_amd64.deb
+                  CID=$(/usr/local/bin/aws secretsmanager get-secret-value --secret-id crowdstrike-cid --query SecretString --output text | cut -d: -f2 | tr -d \"})
+                  /opt/CrowdStrike/falconctl -s -f --cid=$CID
+                  systemctl start falcon-sensor.service
+
+
+                elif [ "$LINUX_DISTRO" == "Amazon Linux AMI" ]; then
+                  # Amazon Linux 1
+                  yum update -y
+                  yum install -y unzip curl
+
+                  yum remove -y awscli
+                  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                  unzip -oq awscliv2.zip
+                  ./aws/install --update
+
+                  /usr/local/bin/aws s3 cp s3://reptrak-crowdstrike-installer/falcon-sensor-6.38.0-13501.amzn1.x86_64.rpm . --only-show-errors
+                  yum localinstall -y falcon-sensor-6.38.0-13501.amzn1.x86_64.rpm
+
+                  CID=$(/usr/local/bin/aws secretsmanager get-secret-value --secret-id crowdstrike-cid --query SecretString --output text | cut -d: -f2 | tr -d \"})
+                  /opt/CrowdStrike/falconctl -s -f --cid=$CID
+                  service falcon-sensor start
+
+                elif [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+                  # Amazon Linux 2
+                  yum update -y
+                  yum install -y unzip curl libnl
+
+                  yum remove -y awscli
+                  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                  unzip -oq awscliv2.zip
+                  ./aws/install --update
+
+                  /usr/local/bin/aws s3 cp s3://reptrak-crowdstrike-installer/falcon-sensor-6.38.0-13501.amzn2.x86_64.rpm . --only-show-errors
+                  yum localinstall -y falcon-sensor-6.38.0-13501.amzn2.x86_64.rpm
+
+                  CID=$(/usr/local/bin/aws secretsmanager get-secret-value --secret-id crowdstrike-cid --query SecretString --output text | cut -d: -f2 | tr -d \"})
+                  /opt/CrowdStrike/falconctl -s -f --cid=$CID
+                  systemctl start falcon-sensor
+
+                fi
+              mode: "000755"
+              owner: "root"
+              group: "root"
+          commands:
+            01_install_antivirus:
+              command: /usr/bin/crowdstrike
+
+    Properties:
+      IamInstanceProfile: !Ref InstanceIAMProfile
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      BlockDeviceMappings:
+        - DeviceName: !If [UbuntuLinux, '/dev/sda1', '/dev/xvda' ]
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: !Ref VolumeType
+            Iops: !If [ChangeEBSIops, !Ref VolumeIops, !Ref AWS::NoValue]
+            DeleteOnTermination: true
+      SubnetId: !Ref Subnet
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      InstanceType: !Ref InstanceType
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}
+        - Key: Team
+          Value: 'Data Science'
+        - Key: Engineer Name
+          Value: !Ref EngineerName
+        - Key: Engineer Email
+          Value: !Ref EngineerEmailAddress
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -e
+          LINUX_DISTRO=$(awk -F= '/^NAME/{print $2}' /etc/*-release | sed -e 's;";;g')
+
+          HOSTNAME_OLD=$(hostname)
+          HOSTNAME_NEW=${AWS::StackName}
+          echo $HOSTNAME_NEW > /etc/hostname
+          echo $HOSTNAME_NEW > /proc/sys/kernel/hostname
+          sed -i "/$HOSTNAME_OLD/c\127.0.0.1 $HOSTNAME_NEW localhost" /etc/hosts
+
+          if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+            hostnamectl set-hostname $HOSTNAME_NEW --static
+
+            # Makes sure apt/dpkg lock is released so that required packages could be installed
+            while true; do
+              if lsof -c apt -c dpkg 2>/dev/null | grep -e /var/lib/apt/lists/lock -e /var/lib/dpkg/lock ; then
+                echo -e "Waiting for apt/dpkg lock release"
+                sleep 5
+              else
+                # AWS CloudFormation helper scripts aren't included by default in non Amazon Linux AMIs
+                apt -qq update
+                mkdir -p /opt/aws/bin
+                wget -q https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+                python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz
+                wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb
+                dpkg -i /tmp/amazon-cloudwatch-agent.deb && break
+              fi
+            done
+
+          elif [ "$LINUX_DISTRO" == "Debian GNU/Linux" ]; then
+            hostnamectl set-hostname $HOSTNAME_NEW --static
+
+            # Makes sure apt/dpkg lock is released so that required packages could be installed
+            while true; do
+              if lsof -c apt -c dpkg 2>/dev/null | grep -e /var/lib/apt/lists/lock -e /var/lib/dpkg/lock ; then
+                echo -e "Waiting for apt/dpkg lock release"
+                sleep 5
+              else
+                # AWS CloudFormation helper scripts aren't included by default in non Amazon Linux AMIs
+                apt -qq update
+                apt -qq -y install python3-setuptools
+                mkdir -p /opt/aws/bin
+                wget -q https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+                python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz
+
+                wget -q https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb -O /tmp/amazon-ssm-agent.deb
+                dpkg -i /tmp/amazon-ssm-agent.deb
+                systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent
+
+                wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb
+                dpkg -i /tmp/amazon-cloudwatch-agent.deb && break
+              fi
+            done
+
+          elif [ "$LINUX_DISTRO" == "Amazon Linux AMI" ]; then
+            sed -i "/HOSTNAME=$HOSTNAME_OLD/c\HOSTNAME=$HOSTNAME_NEW" /etc/sysconfig/network
+            # Amazon Linux 1
+            rpm -iUvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+
+          elif [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+            hostnamectl set-hostname $HOSTNAME_NEW --static
+            # Amazon Linux 2
+            rpm -iUvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+
+          fi
+
+          /opt/aws/bin/cfn-init -v \
+            --stack ${AWS::StackName} \
+            --resource EC2Instance \
+            --region ${AWS::Region} \
+            --configsets installation
+
+          # Signal results
+          /opt/aws/bin/cfn-signal -e $? \
+            --stack ${AWS::StackName} \
+            --resource EC2Instance \
+            --region ${AWS::Region} \
+            --reason "CFN config setup exited with value $?."
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M
+
+
+  LambdaIAMRole:
+    Type: AWS::IAM::Role
+    Condition: ChangeEBSIops
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+
+  ChangeEBSTypeLambda:
+    Type: AWS::Lambda::Function
+    Condition: ChangeEBSIops
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ZipFile: !Sub |
+          import boto3
+
+          def lambda_handler(event, context):
+              region = event["region"]
+              instanceID = event["detail"]["instance-id"]
+              instanceState = event["detail"]["state"]
+
+              ec2_client = boto3.client('ec2', region_name=region)
+
+              volume = ec2_client.describe_volumes(
+                  Filters=[
+                      {
+                          'Name': 'attachment.instance-id',
+                          'Values': [ instanceID ]
+                      },
+                  ],
+              )
+              volumeID = volume["Volumes"][0]["Attachments"][0]["VolumeId"]
+              volumeType = volume["Volumes"][0]["VolumeType"]
+
+              if instanceState == "running" and volumeType != "io1":
+                  try:
+                      ec2_client.modify_volume(
+                          VolumeId=volumeID,
+                          VolumeType='io1',
+                          Iops=${VolumeIops}
+                      )
+
+                  except Exception as e:
+                      print(f'Unable to change volume type of {volumeID} to io1. Exception: {e}')
+                      raise e
+
+                  print(f"Instance {instanceID} in {region} region is {instanceState} so {volumeID} volume type has been changed to io1")
+
+              elif instanceState == "stopped" and volumeType != "gp2":
+                  try:
+                      ec2_client.modify_volume(
+                          VolumeId=volumeID,
+                          VolumeType='gp2',
+                      )
+
+                  except Exception as e:
+                      print(f'Unable to change volume type of {volumeID} to gp2. Exception: {e}')
+                      raise e
+
+                  output = f"Instance {instanceID} in {region} region is {instanceState} so {volumeID} volume type has been changed to gp2"
+                  print(output)
+                  return output
+
+              else:
+                  output = f"Instance {instanceID} in {region} region is {instanceState} and {volumeID} volume type is {volumeType}"
+                  print(output)
+                  return output
+      Description: 'Lambda that will change the EBS type'
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 5
+
+  LambdaAsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Condition: ChangeEBSIops
+    Properties:
+      FunctionName: !Ref ChangeEBSTypeLambda
+      MaximumRetryAttempts: 0
+      Qualifier: $LATEST
+
+  StateMachineIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: ChangeEBSIops
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref ChangeEBSTypeLambda
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:lambda:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':function:'
+                - !Ref ChangeEBSTypeLambda
+                - ":*"
+
+  StateMachineIAMRole:
+    Type: AWS::IAM::Role
+    Condition: ChangeEBSIops
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - states.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref StateMachineIAMPolicy
+
+  ChangeEBSTypeStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Condition: ChangeEBSIops
+    Properties:
+      RoleArn: !GetAtt StateMachineIAMRole.Arn
+      DefinitionString: |-
+        {
+          "StartAt": "Lambda Invoke",
+          "States": {
+            "Lambda Invoke": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "OutputPath": "$.Payload",
+              "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "${ChangeEBSTypeFunction}:$LATEST"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "IntervalSeconds": 21900,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 1.5
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+      DefinitionSubstitutions:
+        ChangeEBSTypeFunction: !GetAtt ChangeEBSTypeLambda.Arn
+
+  ChangeEBSTypeEventRule:
+    Type: AWS::Events::Rule
+    Condition: ChangeEBSIops
+    Properties:
+      Description: "Change EBS type when EC2 is started or stopped"
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "EC2 Instance State-change Notification"
+        detail:
+          state:
+            - "running"
+            - "stopped"
+          instance-id:
+            - !Ref EC2Instance
+      State: "ENABLED"
+      Targets:
+        -
+          Arn:
+            Fn::GetAtt:
+              - "ChangeEBSTypeStateMachine"
+              - "Arn"
+          Id: "ChangeEBSTypeStateMachine"
+          RoleArn: !GetAtt
+            - EventBridgeIAMrole
+            - Arn
+
+  EventBridgeIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: ChangeEBSIops
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - states:StartExecution
+            Effect: Allow
+            Resource:
+              - !Ref "ChangeEBSTypeStateMachine"
+
+  EventBridgeIAMrole:
+    Type: AWS::IAM::Role
+    Condition: ChangeEBSIops
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - events.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EventBridgeIAMPolicy
+
+Outputs:
+  InstanceID:
+    Description: EC2 Instance's ID
+    Value: !Ref EC2Instance
+  InstanceName:
+    Description: EC2 Instance's Name
+    Value: !Sub ${AWS::StackName}
+  InstanceInternalIP:
+    Description: Internal IP Address
+    Value: !GetAtt EC2Instance.PrivateIp
+  InstanceRegion:
+    Description: EC2 Instance's region
+    Value: !Ref "AWS::Region"

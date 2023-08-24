@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: replicas
+  namespace: default
+rules:
+- apiGroups: ["*"]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+- apiGroups: ["*"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: replicas-bindings
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: replicas
+subjects:
+- kind: ServiceAccount
+  name: replicas
+  namespace: default

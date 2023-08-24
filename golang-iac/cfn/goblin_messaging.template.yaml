@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name (main/staging/test or some other unique id)
+    Type: String
+
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+##############################################
+## baselosscost
+##############################################
+  GoblinBaselossCostQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !If [Prod, goblin-baselosscost-queue, !Sub "${Env}-goblin-baselosscost-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy: 
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+  GoblinBaselossCostQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GoblinBaselossCostQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: GoblinBaselossCostQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt GoblinBaselossCostQueue.Arn
+  PublishBaselossCostSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinBaselossCostQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-config-publish-baselosscost"
+  DeleteBaselossCostSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinBaselossCostQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-delete-rateplan"
+
+##################################################
+## factory
+##################################################
+  GoblinFactoryQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !If [Prod, goblin-factory-queue, !Sub "${Env}-goblin-factory-queue"]
+      VisibilityTimeout: 900
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy: 
+        deadLetterTargetArn: 
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+  GoblinFactoryQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GoblinFactoryQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: GoblinFactoryQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt GoblinFactoryQueue.Arn
+  PublishFactorySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinFactoryQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-config-publish-factor"
+  DeleteFactorySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinFactoryQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-delete-rateplan"
+
+#################################################
+## mod-factor
+#################################################
+  GoblinModFactorQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !If [Prod, goblin-modfactor-queue, !Sub "${Env}-goblin-modfactor-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy: 
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+  GoblinModFactorQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GoblinModFactorQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: GoblinModFactorQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt GoblinModFactorQueue.Arn
+  PublishModFactorSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinModFactorQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-config-publish-modfactor"
+  DeleteModFactorSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinModFactorQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-delete-rateplan"
+
+########################################################
+## rateplan-store
+########################################################
+  GoblinRatePlanStoreQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !If [Prod, goblin-rateplan-store-queue, !Sub "${Env}-goblin-rateplan-store-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy: 
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+  GoblinRatePlanStoreQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GoblinRatePlanStoreQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: GoblinRatePlanStoreQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt GoblinRatePlanStoreQueue.Arn
+  PublishRatePlanStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRatePlanStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-config-publish-rateplan"
+  DeleteRatePlanStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRatePlanStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-delete-rateplan"
+  VersionDraftRatePlanStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRatePlanStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-product-version-draft"
+  VersionPublishRatePlanStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRatePlanStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue: 
+          !Sub "${Env}-backbone-product-version-publish"
+  VersionDeleteRatePlanStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRatePlanStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-product-version-delete"
+
+###################################################
+## ratesheet-store
+###################################################
+  GoblinRateSheetStoreQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !If [Prod, goblin-ratesheet-store-queue, !Sub "${Env}-goblin-ratesheet-store-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy: 
+        deadLetterTargetArn:
+          Fn::ImportValue:
+            !Sub "${Env}-dead-letter-queue-arn"
+        maxReceiveCount: 10
+  GoblinRateSheetStoreQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GoblinRateSheetStoreQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: GoblinRateSheetStoreQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt GoblinRateSheetStoreQueue.Arn
+  BackupRateSheetStoreSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt GoblinRateSheetStoreQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: 
+        Fn::ImportValue:  
+          !Sub "${Env}-backbone-store-ratesheet"
+

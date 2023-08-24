@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Infrastructure for Bibliotech Tenants
+
+Parameters:
+  Env:
+    Description: The Env Name that we're going to deploy this Env into (prod/staging/test or something else)
+    Type: String
+
+Resources:
+
+  ##########################################################################
+  # Back ups
+  ##########################################################################
+  Vault:
+    Type: AWS::Backup::BackupVault
+    DeletionPolicy: Retain
+    Properties:
+      BackupVaultName: !Sub "${Env}-backup"
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - backup.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+
+  DailyPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${Env}-backup-daily"
+        BackupPlanRule:
+        - RuleName: BibliotechBackupDailyRule
+          TargetBackupVault: !Ref Vault
+          ScheduleExpression: cron(0 5 ? * * *)
+          StartWindowMinutes: 60
+          Lifecycle:
+            MoveToColdStorageAfterDays: 30
+            DeleteAfterDays: 120
+    DependsOn: Vault
+
+  Selection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupSelection:
+        SelectionName: !Sub "${Env}-backup"
+        IamRoleArn: !GetAtt Role.Arn
+        ListOfTags:
+        - ConditionType: STRINGEQUALS
+          ConditionKey: backup
+          ConditionValue: true 
+        - ConditionType: STRINGEQUALS
+          ConditionKey: Env
+          ConditionValue: !Ref Env
+      BackupPlanId: !Ref DailyPlan
+    DependsOn: DailyPlan

@@ -1,0 +1,144 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: RDS Storage Encrypted
+Parameters:
+  EnvType:
+    Type: String
+    Default: ""
+  DeployPostgres:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBInstanceClass:
+    Description: The compute and memory capacity of the DB instance
+    Type: String
+  Engine:
+    Description: RDS database engine
+    Type: String
+  EngineFamily:
+    Type: String
+  EngineVersion:
+    Description: Default RDS database engine version
+    Type: String
+  MultiAZ:
+    Description: Setup RDS with Multi-AZ deployment
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: false
+  PubliclyAccessible:
+    Type: String
+    AllowedValues: ['true', 'false']
+  DBPort:
+    Type: Number
+  Name:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  VpcCIDR:
+    Type: String
+  SubnetGroup:
+    Type: String
+  VPNCidr:
+    Type: String
+  SourceDBInstanceIdentifier:
+    Type: String
+  SourceRegion:
+    Type: String
+  KmsKeyId:
+    Type: String
+  DBUsername:
+    Type: String
+  DBPassword:
+    Type: String
+    NoEcho: True
+
+
+Conditions:
+  CreatePostgres: !Equals [ !Ref DeployPostgres, "true"]
+  CreateMySQL: !Equals [ !Ref DeployPostgres, "false"]
+
+Resources:
+
+  ReadReplicSecrets:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: RDSInstance
+    Properties:
+      Name: !Sub ${Name}/${Engine}-rds
+      Description: Secrets from master node with local host address
+      SecretString: !Sub '{"username":"${DBUsername}","password":"${DBPassword}","port":"${DBPort}","host":"${RDSInstance.Endpoint.Address}"}'
+
+
+  MySQLRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateMySQL
+    Properties:
+      Description: CloudFormation RDS Parameter Group
+      Family: !Ref EngineFamily
+      Parameters:
+        time_zone: US/Eastern
+        sql_mode: IGNORE_SPACE
+        max_allowed_packet: 1073741824
+        innodb_buffer_pool_size: '{DBInstanceClassMemory*3/4}'
+
+  PGSQLRDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreatePostgres
+    Properties:
+      Description: CloudFormation RDS Parameter Group
+      Family: !Ref EngineFamily
+      Parameters:
+        rds.force_ssl: 1
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds: !Split [ ',', !Ref SubnetGroup ]
+
+  SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Join [ " ", [ !Ref 'AWS::StackName', " - RDS Security Group" ] ]
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: 'mysql RDS access'
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VPNCidr
+          Description: 'vpn endpoint vpc cidr'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-${Engine}-securityGroup'
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub ${AWS::StackName}-${Engine}-rds
+      DBParameterGroupName: !If [CreatePostgres, !Ref PGSQLRDSDBParameterGroup, !Ref MySQLRDSDBParameterGroup]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !Ref Engine
+      MultiAZ: !Ref MultiAZ
+      Port: !Ref DBPort
+      PreferredBackupWindow: 03:00-04:00
+      PreferredMaintenanceWindow: sat:04:00-sat:05:00
+      PubliclyAccessible: !Ref PubliclyAccessible
+      StorageEncrypted: true
+      KmsKeyId: !Ref KmsKeyId
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref SecurityGroup
+      SourceDBInstanceIdentifier: !Ref SourceDBInstanceIdentifier
+      SourceRegion: !Ref SourceRegion
+
+
+Outputs:
+  SecretsName:
+    Value: !Sub ${Name}/${Engine}-rds
+  RDSAddress:
+    Value: !GetAtt RDSInstance.Endpoint.Address

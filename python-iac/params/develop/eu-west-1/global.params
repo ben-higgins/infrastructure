@@ -1,0 +1,8 @@
+RegionActingAs: master
+
+SSHKey: SUPPORT
+EnvType: develop
+
+Bucket: reptrak-deployment
+
+SecondaryRegions: ""

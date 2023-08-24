@@ -1,0 +1,10 @@
+image:
+  repository: karthikk296d/aws-apigw-ingress-controller
+  tag: latest
+
+namespace: default
+
+instanceRoleArn: default
+
+kube2iam: default
+

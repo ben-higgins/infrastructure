@@ -1,0 +1,31 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DNS Root Zone Template
+Parameters:
+  ZoneName:
+    Type: String
+  Name:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+
+  Rootzone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      HostedZoneConfig:
+        Comment: "Internal VPC only Root Zone record"
+      HostedZoneTags:
+        - Key: Environment
+          Value: !Ref Name
+      Name: !Ref ZoneName
+      VPCs:
+        - VPCId: !Ref VpcId
+          VPCRegion: !Ref AWS::Region
+
+Outputs:
+  HostedZoneId:
+    Value: !Ref Rootzone
+    Export:
+      Name: !Sub ${AWS::StackName}-HostedZoneId

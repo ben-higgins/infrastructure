@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.rollingUpdate.maxUnavailable }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+        owner: engineering
+        type: frontend
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: {{ .Values.serviceName }}
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          ports:
+            - containerPort: {{ .Values.container.port }}
+          volumeMounts:
+            - name: {{ .Values.volumeMount.name }}
+              mountPath: {{ .Values.volumeMount.path }}/.env
+              subPath: .env
+          livenessProbe:
+            httpGet:
+              path: /home
+              port: {{ .Values.container.port }}
+            failureThreshold: 6
+            periodSeconds: 15
+          startupProbe:
+            httpGet:
+              path: /home
+              port: {{ .Values.container.port }}
+            failureThreshold: 60
+            periodSeconds: 5
+      volumes:
+        - name: {{ .Values.volumeMount.name }}
+          configMap:
+            name: {{ .Values.volumeMount.name }}

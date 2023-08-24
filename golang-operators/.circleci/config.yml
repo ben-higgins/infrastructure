@@ -1,0 +1,100 @@
+version: 2.1
+
+parameters:
+  ACTION:
+    type: string
+    default: deploy
+  ENV:
+    type: string
+    default: ""
+  BRANCH:
+    type: string
+    default: ""
+
+executors:
+  devops-builder:
+    docker:
+      - image: bhspecialty/devops-builder:1.0
+        auth:
+          username: "$DOCKER_USER"
+          password: "$DOCKER_PASS"
+
+jobs:
+  create-image:
+    docker:
+      - image: docker:stable
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run: mkdir -p /tmp/workspace
+      - run:
+          name: Build and push image
+          command: |
+            if [ test -f "./Dockerfile" ]; then
+                DOCKERFILE=$( find ./ -name "Dockerfile" )
+            else
+                DOCKERFILE=$( find ./deployment -name "Dockerfile" )
+            fi
+
+            echo "${DOCKER_PASS}" | docker login --username "${DOCKER_USER}" --password-stdin
+
+            for file in $DOCKERFILE;
+            do 
+                echo $file
+                PROJECT=$(dirname $file | awk -F'/' '{print $NF}')
+
+                IMAGE_TAG="bhspecialty/devops-builder:$PROJECT-${CIRCLE_BUILD_NUM}"
+                docker build -t $IMAGE_TAG -f $file --build-arg GIT_USER=$GIT_USER --build-arg GIT_TOKEN=$GIT_TOKEN .
+
+                docker push $IMAGE_TAG 
+
+                echo "$PROJECT=$IMAGE_TAG" >> /tmp/workspace/env
+            done 
+           
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths: env
+  pull_platform_repo:
+    executor: devops-builder
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: |
+          git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/bhsi-cinch/platform.git
+      - run: |
+          cd ./platform/
+
+          # temp solution until eks-foundation branch is merged
+          #python ./bin/git-checkout.py --gitBranch ${CIRCLE_BRANCH} --envName << pipeline.parameters.ENV >>
+          git checkout eks-platform
+          
+          echo [default] > ~/.aws/credentials
+          echo aws_access_key_id=${AWS_ACCESS_KEY_ID} >> ~/.aws/credentials
+          echo aws_secret_access_key=${AWS_SECRET_ACCESS_KEY} >> ~/.aws/credentials
+          
+          cd ./src
+          
+          while read p; do 
+            DOCKER_IMAGE=$( echo $p  | awk -F'=' '{print $NF}' )
+            PROJECT=$( echo $p  | awk -F'=' '{print $1}')
+            go run deploy_service.go \
+              -action << pipeline.parameters.ACTION >> \
+              -projectName $PROJECT \
+              -branchName << pipeline.parameters.ENV >> \
+              -dockerImage ${DOCKER_IMAGE} \
+              -projectPrefix devops
+          done </tmp/workspace/env
+          
+
+workflows:
+  deploy_container:
+    jobs:
+      - create-image:
+          context:
+            - default
+      - pull_platform_repo:
+          requires:
+            - create-image
+          context:
+            - default

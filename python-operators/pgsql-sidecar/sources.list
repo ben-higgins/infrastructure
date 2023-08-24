@@ -1,0 +1,3 @@
+deb http://archive.ubuntu.com/ubuntu focal main universe multiverse restricted
+deb http://security.ubuntu.com/ubuntu/ focal-security main multiverse universe restricted
+deb http://archive.ubuntu.com/ubuntu focal-updates main multiverse universe restricted

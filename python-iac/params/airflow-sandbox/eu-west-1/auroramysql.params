@@ -1,0 +1,4 @@
+MySQLEngine: aurora-mysql
+MySQLEngineVersion: 5.7.12
+MySQLEngineFamily: aurora-mysql5.7
+MySQLDBInstanceClass: db.r5.large

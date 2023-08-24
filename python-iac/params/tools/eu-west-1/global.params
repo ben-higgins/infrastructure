@@ -1,0 +1,11 @@
+
+SSHKey: SUPPORT
+EnvType: tools
+
+Bucket: reptrak-deployment
+
+MWWAOperationalBucketName: ""
+
+SecretSrcRegion: eu-west-1
+SecretSrcEnvName: develop
+SkipSecrets: 'aurora-mysql-cluster, aurora-postgresql-cluster'

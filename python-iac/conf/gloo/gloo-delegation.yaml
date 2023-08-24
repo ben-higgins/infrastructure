@@ -1,0 +1,76 @@
+apiVersion: gateway.solo.io/v1
+kind: VirtualService
+metadata:
+  name: api-delegation
+  namespace: default
+spec:
+  virtualHost:
+    domains:
+      - '*'
+    routes:
+      - matchers:
+          - prefix: /api/
+        delegateAction:
+          ref:
+            name: platform-api
+            namespace: default
+      - matchers:
+          - prefix: /auth/
+        delegateAction:
+          ref:
+            name: platform-auth
+            namespace: default
+      - matchers:
+          - prefix: /powerbi/
+        delegateAction:
+          ref:
+            name: powerbi-server
+            namespace: default
+      - matchers:
+          - prefix: /filters/
+        delegateAction:
+          ref:
+            name: platform-filters
+            namespace: default
+      - matchers:
+          - prefix: /user/
+        delegateAction:
+          ref:
+            name: reptrak-user-management
+            namespace: default
+      - matchers:
+          - prefix: /study/
+        delegateAction:
+          ref:
+            name: study-api
+            namespace: default
+      - matchers:
+          - prefix: /zapnito/
+        delegateAction:
+          ref:
+            name: zapnito-api
+            namespace: default
+      - matchers:
+          - prefix: /media/queries/
+        delegateAction:
+          ref:
+            name: media-client-queries-generator
+            namespace: default
+      - matchers:
+          - prefix: /media/fulltext/
+        delegateAction:
+          ref:
+            name: media-fulltext-enrichment
+            namespace: default
+      - matchers:
+          - prefix: /box/
+        delegateAction:
+          ref:
+            name: platform-box-api
+            namespace: default
+      - matchers:
+          - prefix: /survey/
+        delegateAction:
+          ref:
+            name: survey-integration
+            namespace: default

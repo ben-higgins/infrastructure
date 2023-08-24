@@ -1,0 +1,20 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+region: null
+bucket: "berxi-platform-backups-us-east-2"
+
+container:
+  image: null
+
+serviceOverride: postgres-rds
+
+# In multi-region env, deploy the cron jobs in master region only. It's value is inject by infrastructure params
+RegionActingAs: master
+
+postgres: true
+
+envs:
+  

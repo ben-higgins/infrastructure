@@ -1,0 +1,45 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+
+replicaCount: 1
+
+rollingUpdate:
+  maxSurge: 75%
+  maxUnavailable: 75%
+
+container:
+  port: 8080
+  image: null
+  liveness: /
+  readiness: /
+
+service:
+  type: LoadBalancer
+  port: 8080
+  protocol: TCP
+
+volumeMount:
+  name: env
+  path: /app
+
+ssl:
+  certificateArn: null
+  policy: "ELBSecurityPolicy-FS-1-2-Res-2020-10"
+  backendProtocol: "HTTP"
+
+wafAclArn: null
+
+# dns-record devops operator will read and create this dns entry
+dnsEntry: null
+
+# In multi-region env, deploy the cron jobs and cloudfront CDN in master region only
+RegionActingAs: ""
+
+# Deploy the cloudfront CDN if this and following parameter is True. It's value is inject by infrastructure params
+DeployCloudfront: ""
+
+# Deploy the cloudfront CDN if this and above parameter is True. It's value is injected by Jenkinsfile in this repo
+EnableCloudfront: ""

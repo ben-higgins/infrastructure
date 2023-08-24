@@ -1,0 +1,33 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+    spec:
+      schedule: {{ .Values.schedule }}
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          ports:
+            - containerPort: {{ .Values.container.port }}
+          volumeMounts:
+            - name: env
+              mountPath: /app/.env
+              subPath: .env
+          args:
+            - /bin/sh
+            - -c
+            - date; echo Hello from the Kubernetes cluster
+        restartPolicy: OnFailure
+      volumes:
+        - name: env
+          configMap:
+            name: {{ .Values.serviceName }}-env

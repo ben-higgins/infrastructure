@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Infrastructure for Bibliotech Tenants
+
+Parameters:
+  Env:
+    Description: The Env Name that we're going to deploy this Env into (prod/staging/test or something else)
+    Type: String
+  DynamoBackup:
+    Type: String
+    Default: true
+
+# Conditions that can be evaulated to alter execution
+Conditions:
+  Production: !Equals [!Ref Env, prod]
+
+Resources:
+
+##########################################################################
+  # document tables
+  ##########################################################################
+  # DB Role
+  DocumentDBScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - application-autoscaling.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:DescribeTable
+            - dynamodb:UpdateTable
+            - cloudwatch:PutMetricAlarm
+            - cloudwatch:DescribeAlarms
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:SetAlarmState
+            - cloudwatch:DeleteAlarms
+            Resource: "*"
+
+  # DB Table
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !If [Production, "bibliotech-files", !Sub "${Env}.bibliotech-files"]
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: !If [Production, 80, 5] # assumes a read capacity of 80 items per second at an avg size of 3kb
+        WriteCapacityUnits: !If [Production, 90, 5] # assumes a write capacity of 30 items per second at avg size of 3kb
+      AttributeDefinitions:
+      - AttributeName: pk
+        AttributeType: S
+      - AttributeName: sk
+        AttributeType: S
+      - AttributeName: registeredAt
+        AttributeType: N
+      KeySchema:
+      - AttributeName: pk
+        KeyType: HASH
+      - AttributeName: sk
+        KeyType: RANGE
+      LocalSecondaryIndexes:
+      - IndexName: pk-registeredAt-index
+        KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: registeredAt
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # DB Scalability
+  DocumentTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref DocumentTable
+      RoleARN: !GetAtt DocumentDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  
+  DocumentTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: TableWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DocumentTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  
+  DocumentTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref DocumentTable
+      RoleARN: !GetAtt DocumentDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  DocumentTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: TableReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DocumentTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  
+  ##########################################################################
+  # tenant tables
+  ##########################################################################
+  # DB Role
+  TenantDBScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - application-autoscaling.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:DescribeTable
+            - dynamodb:UpdateTable
+            - cloudwatch:PutMetricAlarm
+            - cloudwatch:DescribeAlarms
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:SetAlarmState
+            - cloudwatch:DeleteAlarms
+            Resource: "*"
+
+  # DB Table
+  TenantTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !If [Production, "bibliotech-tenants", !Sub "${Env}.bibliotech-tenants"]
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: !If [Production, 30, 5] # assumes a read capacity of 30 items per second at an avg size of 3kb
+        WriteCapacityUnits: !If [Production, 30, 5] # assumes a write capacity of 10 items per second at avg size of 3kb
+      AttributeDefinitions:
+      - AttributeName: pk
+        AttributeType: S
+      KeySchema:
+      - AttributeName: pk
+        KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  # DB Scalability
+  TenantTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref TenantTable
+      RoleARN: !GetAtt TenantDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  TenantTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: TableWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TenantTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  
+  TenantTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref TenantTable
+      RoleARN: !GetAtt TenantDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  
+  TenantTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: TableReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TenantTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+

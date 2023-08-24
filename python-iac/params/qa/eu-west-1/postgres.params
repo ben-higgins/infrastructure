@@ -1,0 +1,7 @@
+PGEngine: postgres
+PGEngineVersion: 11.14
+PGEngineFamily: postgres11
+PGDBInstanceClass: db.t3.small
+PGDBAllocatedStorage: 20
+PGBackupRetentionPeriod: 30
+PGSQLMultiAZ: false

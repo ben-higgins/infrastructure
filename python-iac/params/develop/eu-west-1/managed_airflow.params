@@ -1,0 +1,5 @@
+MWWAEnvironmentClass: mw1.medium
+MWAAServiceTeamOwner: dbeng
+MWAAMaxWorkers: 10
+MWAALogLevel: INFO
+MWWAExecutionEnvironment: develop

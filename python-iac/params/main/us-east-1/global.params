@@ -1,0 +1,6 @@
+RegionActingAs: slave
+
+SSHKey: SUPPORT
+EnvType: main
+
+Bucket: reptrak-deployment

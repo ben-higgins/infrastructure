@@ -1,0 +1,33 @@
+{{ if eq .Values.RegionActingAs "master" }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-{{ .Values.serviceName }}-backup-dbs
+spec:
+  schedule: "0 4 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: {{ .Values.serviceName }}
+              image: {{ .Values.container.image }}
+              env:
+                - name: REGION
+                  value: {{ .Values.region }}
+                - name: ENV
+                  value: {{ .Values.envType }}
+                - name: ACTION
+                  value: backup
+                - name: LOCALDEV
+                  value: "false"
+                - name: BUCKET
+                  value: {{ .Values.bucket }}
+                {{ range $key, $value := .Values.envs }}
+                - name: {{ $key }}
+                  value: {{ $value | quote }}
+                {{ end }}
+          restartPolicy: OnFailure
+{{ end }}

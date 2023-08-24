@@ -1,0 +1,6 @@
+RedshiftReadOnlyUserGroups: read_only
+RedshiftMediaUserGroups: read_only
+RedshiftDataScienceUserGroups: etl_ds,write_only_ds,read_only_ds
+RedshiftDBEngUserGroups: etl,ui
+RedshiftDeploymentAutomationUserGroups: alembic,etl
+RedshiftSrcClusterRegion: eu-central-1

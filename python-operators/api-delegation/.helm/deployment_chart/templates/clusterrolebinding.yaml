@@ -1,0 +1,13 @@
+# Attach ClusterRole to ServiceAccount of default namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.serviceName }}-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceName }}
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.serviceName }}-role
+  apiGroup: rbac.authorization.k8s.io

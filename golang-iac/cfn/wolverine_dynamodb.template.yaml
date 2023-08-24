@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service and adds a ecs service
+  and taskdef to the cluster
+Parameters:
+
+  Env:
+    Description: The Env name (prod/staging/test or some other unique id)
+    Type: String
+  DynamoBackup:
+    Type: String
+    Default: true
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+
+Resources:
+
+  ##########################################################################
+  # Roles
+  ##########################################################################
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - application-autoscaling.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:DescribeTable
+            - dynamodb:UpdateTable
+            - cloudwatch:PutMetricAlarm
+            - cloudwatch:DescribeAlarms
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:SetAlarmState
+            - cloudwatch:DeleteAlarms
+            Resource: "*"
+
+  ##########################################################################
+  # DynamoDB
+  ##########################################################################
+  WolverineProductDynamo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: type
+        AttributeType: S
+      - AttributeName: alias
+        AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: type
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName: !If [Prod, wolverine-product, !Sub "${Env}.wolverine-product"]
+      GlobalSecondaryIndexes:
+      - IndexName: alias-index
+        KeySchema:
+        - AttributeName: alias
+          KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        Projection:
+          ProjectionType: ALL
+      Tags:
+      - Key: backup
+        Value: !Ref DynamoBackup
+      - Key: Env
+        Value: !Ref Env
+
+  ##########################################################################
+  # product DB Autoscaling
+  ##########################################################################
+  ProductTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref WolverineProductDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ProductTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ProductTableWriteScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ProductTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  ProductTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 40000
+      MinCapacity: 5
+      ResourceId: !Join
+      - /
+      - - table
+        - !Ref WolverineProductDynamo
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ProductTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ProductTableReadScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ProductTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+

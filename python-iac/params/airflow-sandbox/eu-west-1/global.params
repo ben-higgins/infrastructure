@@ -1,0 +1,15 @@
+RegionActingAs: master
+
+Region: eu-west-1
+RegionActingAs: master
+
+SSHKey: SUPPORT
+EnvType: airflow-sandbox
+
+Bucket: reptrak-deployment
+
+SecretSrcRegion: eu-west-1
+SecretSrcEnvName: develop
+SkipSecrets: 'aurora-mysql-cluster, aurora-postgresql-cluster'
+
+SecondaryRegions: ""

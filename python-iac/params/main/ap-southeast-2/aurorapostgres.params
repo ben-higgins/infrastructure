@@ -1,0 +1,4 @@
+PGEngine: aurora-postgresql
+PGEngineVersion: 11.9
+PGEngineFamily: aurora-postgresql11
+PGDBInstanceClass: db.r5.large

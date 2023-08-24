@@ -1,0 +1,8 @@
+RegionActingAs: master
+
+SSHKey: SUPPORT
+EnvType: qa
+
+Bucket: reptrak-deployment
+
+SecondaryRegions: "us-east-1","ap-southeast-2"

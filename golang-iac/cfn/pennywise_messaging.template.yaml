@@ -1,0 +1,445 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Creates any depedencies needed by the service
+Parameters:
+  Env:
+    Description: The Env name (main/staging/test or some other unique id)
+    Type: String
+
+
+Conditions:
+  Prod:
+    Fn::Equals:
+      - !Ref Env
+      - main
+Resources:
+  ##########################################################################
+  # Billing
+  ##########################################################################
+  PennywiseBillingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-billing-queue",
+          !Sub "${Env}-pennywise-billing-queue",
+        ]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PennywiseBillingDLQ.Arn
+        maxReceiveCount: 10
+
+  PennywiseBillingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-billing-dlq",
+          !Sub "${Env}-pennywise-billing-dlq",
+        ]
+
+  PennywiseBillingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PennywiseBillingQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: PennywiseBillingQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt PennywiseBillingQueue.Arn
+
+  PennywiseBillingPaymentAuthorizedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-payment-authorized"
+
+  PennywiseBillingPaymentConfirmedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-payment-confirmed"
+
+  PennywiseBillingPaymentErrorSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-payment-error"
+
+  PennywiseBillingRefundSuccessfulSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-refund-successful"
+
+  PennywiseBillingRefundConfirmedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-refund-confirmed"
+
+  PennywiseBillingRefundErrorSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywiseBillingQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-refund-error"
+
+##########################################################################
+# cash
+##########################################################################
+  PaymentSuccessQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-payment-success-queue",
+          !Sub "${Env}-pennywise-payment-success-queue",
+        ]
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PaymentSuccessDLQ.Arn
+        maxReceiveCount: 3
+      # AWS Recommendation is 6 times function timeout + batch window time
+      # 120 * 6 = 725
+      VisibilityTimeout: 720
+
+  PaymentSuccessDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-payment-success-dlq",
+          !Sub "${Env}-pennywise-payment-success-dlq",
+        ]
+
+  SNStoPaymentSuccessQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PaymentSuccessQueue
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: "allow-sns-message"
+            Effect: Allow
+            Principal: "*"
+            Resource: !GetAtt PaymentSuccessQueue.Arn
+            Action: "SQS:SendMessage"
+            Condition:
+              ArnEquals:
+                "aws:SourceArn":
+                  Fn::ImportValue: !Sub "${Env}-backbone-payment-successful"
+
+  PaymentSuccessQueueSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-payment-successful"
+      Endpoint: !GetAtt PaymentSuccessQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: "true"
+
+  PaymentConfirmedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-payment-confirmed-queue",
+          !Sub "${Env}-pennywise-payment-confirmed-queue",
+        ]
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PaymentConfirmedDLQ.Arn
+        maxReceiveCount: 3
+      # AWS Recommendation is 6 times function timeout + batch window time
+      # 120 * 6 = 725
+      VisibilityTimeout: 720
+
+  PaymentConfirmedDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-payment-confirmed-dlq",
+          !Sub "${Env}-pennywise-payment-confirmed-dlq",
+        ]
+
+  SNStoPaymentConfirmedQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PaymentConfirmedQueue
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: "allow-sns-message"
+            Effect: Allow
+            Principal: "*"
+            Resource: !GetAtt PaymentConfirmedQueue.Arn
+            Action: "SQS:SendMessage"
+            Condition:
+              ArnEquals:
+                "aws:SourceArn":
+                  Fn::ImportValue: !Sub "${Env}-backbone-payment-confirmed"
+
+  PaymentConfirmedQueueSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-payment-confirmed"
+      Endpoint: !GetAtt PaymentConfirmedQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: "true"
+
+  PaymentErrorDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-payment-error-dlq",
+          !Sub "${Env}-pennywise-payment-error-dlq",
+        ]
+
+  RefundSuccessQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-refund-success-queue",
+          !Sub "${Env}-pennywise-refund-success-queue",
+        ]
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt RefundSuccessDLQ.Arn
+        maxReceiveCount: 3
+      # AWS Recommendation is 6 times function timeout + batch window time
+      # 120 * 6 = 725
+      VisibilityTimeout: 720
+
+  RefundSuccessDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-refund-success-dlq",
+          !Sub "${Env}-pennywise-refund-success-dlq",
+        ]
+
+  SNStoRefundSuccessQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref RefundSuccessQueue
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: "allow-sns-message"
+            Effect: Allow
+            Principal: "*"
+            Resource: !GetAtt RefundSuccessQueue.Arn
+            Action: "SQS:SendMessage"
+            Condition:
+              ArnEquals:
+                "aws:SourceArn":
+                  Fn::ImportValue: !Sub "${Env}-backbone-refund-successful"
+
+  RefundSuccessQueueSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-refund-successful"
+      Endpoint: !GetAtt RefundSuccessQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: "true"
+
+  RefundConfirmedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-refund-confirmed-queue",
+          !Sub "${Env}-pennywise-refund-confirmed-queue",
+        ]
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt RefundConfirmedDLQ.Arn
+        maxReceiveCount: 3
+      # AWS Recommendation is 6 times function timeout + batch window time
+      # 120 * 6 = 725
+      VisibilityTimeout: 720
+
+  RefundConfirmedDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-refund-confirmed-dlq",
+          !Sub "${Env}-pennywise-refund-confirmed-dlq",
+        ]
+
+  SNStoRefundConfirmedQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref RefundConfirmedQueue
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: "allow-sns-message"
+            Effect: Allow
+            Principal: "*"
+            Resource: !GetAtt RefundConfirmedQueue.Arn
+            Action: "SQS:SendMessage"
+            Condition:
+              ArnEquals:
+                "aws:SourceArn":
+                  Fn::ImportValue: !Sub "${Env}-backbone-refund-confirmed"
+
+  RefundConfirmedQueueSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn:
+        Fn::ImportValue: !Sub "${Env}-backbone-refund-confirmed"
+      Endpoint: !GetAtt RefundConfirmedQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: "true"
+
+  RefundErrorDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        !If [
+          Prod,
+          "pennywise-refund-error-dlq",
+          !Sub "${Env}-pennywise-refund-error-dlq",
+        ]
+
+ ##########################################################################
+  # payment
+  ##########################################################################
+  PennywisePaymentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, "pennywise-payment-queue", !Sub "${Env}-pennywise-payment-queue"]
+      ReceiveMessageWaitTimeSeconds: 15
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PennywisePaymentIssuedDLQ.Arn
+        maxReceiveCount: 10
+
+  PennywisePaymentIssuedDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !If [Prod, "pennywise-policy-issued-dlq", !Sub "${Env}-pennywise-policy-issued-dlq"]
+
+  PennywisePaymentQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PennywisePaymentQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: PennywisePaymentQueuePolicy
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource:
+              - !GetAtt PennywisePaymentQueue.Arn
+
+  PennywisePaymentPolicyIssuedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywisePaymentQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-policy-issued"
+
+  PennywiseDocumentExpiredSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywisePaymentQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-billing-document-expired"
+
+  PennywiseDocumentCancelledSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt PennywisePaymentQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn:
+        Fn::ImportValue:
+          !Sub "${Env}-backbone-billing-document-cancelled"
+
+
+Outputs:
+  PaymentSuccessQueueArn:
+    Value: !GetAtt PaymentSuccessQueue.Arn
+    Export:
+      Name: !Sub "${Env}-PaymentSuccessQueueArn"
+
+  PaymentConfirmedQueueArn:
+    Value: !GetAtt PaymentConfirmedQueue.Arn
+    Export:
+      Name: !Sub "${Env}-PaymentConfirmedQueueArn"
+
+  PaymentErrorDLQArn:
+    Value: !GetAtt PaymentErrorDLQ.Arn
+    Export:
+      Name: !Sub "${Env}-PaymentErrorDLQArn"
+
+  RefundSuccessQueueArn:
+    Value: !GetAtt RefundSuccessQueue.Arn
+    Export:
+      Name: !Sub "${Env}-RefundSuccessQueueArn"
+
+  RefundConfirmedQueueArn:
+    Value: !GetAtt RefundConfirmedQueue.Arn
+    Export:
+      Name: !Sub "${Env}-RefundConfirmedQueueArn"
+
+  RefundErrorDLQArn:
+    Value: !GetAtt RefundErrorDLQ.Arn
+    Export:
+      Name: !Sub "${Env}-RefundErrorDLQArn"

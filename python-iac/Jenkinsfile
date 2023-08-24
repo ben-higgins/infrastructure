@@ -1,0 +1,64 @@
+library identifier: "infralibraries@$BRANCH_OVERRIDE",
+    retriever: modernSCM([
+      $class: 'GitSCMSource',
+      credentialsId: 'f1bb78e1-6fd3-40e0-876b-753cf75ed889',
+      remote: 'git@github.com:RepTrak/devops-infrastructure.git'
+]) _
+
+pipeline {
+    options {
+        buildDiscarder(logRotator(daysToKeepStr: '60', numToKeepStr: '200'))
+        timestamps ()
+        timeout(time: 60, unit: 'MINUTES')
+        skipDefaultCheckout(true)
+    }
+
+    agent any
+
+    environment {
+        SLACK_CHANNELS = '#devops-doitlive'
+        SLACK_ORG = 'reptrak'
+        SLACK_TOKEN = 'SlackToken'
+        SLACK_USER = 'infrastructure'
+        SLACK_EMOJI = ':jenkins_triggered:'
+    }
+    parameters {
+        choice(name: 'ACTION', choices: ['Deploy', 'Rollback', 'Delete'], description: '')
+        string(name: 'ENV_NAME', defaultValue: null, description: 'Environment to Deploy')
+        string(name: 'BRANCH_OVERRIDE', defaultValue: 'master', description: 'Override Master Branch')
+    }
+
+    stages {
+        stage ('checkout code') {
+            steps {
+                script {
+                    checkout scm
+                }
+            }
+        }
+
+        stage('infrastructure-deployment') {
+            steps {
+                script {
+                    deployInfrastructure(
+                        ACTION: params.ACTION,
+                        ENV_NAME: params.ENV_NAME,
+                        BRANCH_OVERRIDE: params.BRANCH_OVERRIDE
+                    )
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            slackSend (
+                channel: env.SLACK_CHANNELS, tokenCredentialId: env.SLACK_TOKEN, teamDomain: env.SLACK_ORG,
+                username: env.SLACK_USER, iconEmoji: env.SLACK_EMOJI, color: 'danger',
+                message: "${env.JOB_NAME} - Failure (<${env.BUILD_URL}|Open>)"
+            )
+        }
+    }
+}

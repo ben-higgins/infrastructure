@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy Jenkins into a management VPC
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-283cac51
+  Subnet:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-6276f438
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-062f7200baf2fa504
+  InstanceType:
+    Type: String
+    Default: t3.large
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: devops
+  DockerImage:
+    Type: String
+    Default: 663946581577.dkr.ecr.us-east-1.amazonaws.com/jenkins:latest
+  EnvType:
+    Type: String
+    Default: prod
+    AllowedValues: ['dev', 'qa', 'prod']
+  VolumeSize:
+    Type: Number
+    Default: 500
+
+Resources:
+  JenkinsPorts:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow vpn access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 192.168.0.0/16
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 192.168.0.0/16
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  JenkinsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  JenkinsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "root"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action: "*"
+            Resource: "*"
+          - Effect: "Allow"
+            Action: "es:*"
+            Resource: "arn:aws:es:us-east-1:796026647601:domain/k8s-es01/*"
+      Roles:
+        - !Ref JenkinsRole
+
+  JenkinsRoleProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref JenkinsRole
+      InstanceProfileName:
+        !Join
+        - '-'
+        - - 'Jenkins'
+          - !Ref AWS::StackName
+
+  JenkinsMasterEC2:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          quickstart:
+            - "bash-files"
+            - "package-install"
+            - "start-docker"
+            - "sync-s3"
+            - "crontab"
+            - "tags"
+        bash-files:
+          files:
+            /usr/bin/s3-sync:
+              content: !Sub |
+                #!/bin/bash
+                ACTION=$1
+                FDATE=$( date '+%Y%m%d' )
+                if [ "$ACTION" == "BACKUP" ]; then
+                  aws s3 --region us-east-1 sync /var/jenkins_home s3://riserverbackup/jenkins/${EnvType}/$FDATE/ --exclude workspace/*
+                else
+                  aws s3 --region us-east-1 sync s3://riserverbackup/jenkins/${EnvType}/$FDATE/ /var/jenkins_home
+                fi
+              mode: "000777"
+              owner: "root"
+              group: "root"
+            /tmp/tags.sh:
+              content:
+                #!/bin/bash
+                INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id/)
+                aws ec2 --region ${AWS::Region} create-tags --resources $INSTANCE_ID --tags Key=Name,Value=${AWS::StackName}-master
+              mode: "000777"
+              owner: "root"
+              group: "root"
+        package-install:
+          commands:
+            install:
+              command: sudo amazon-linux-extras install docker
+            usermod:
+              command: usermod -a -G docker ec2-user
+        start-docker:
+          services:
+            sysvinit:
+              docker:
+                enabled: "true"
+                ensureRunning: "true"
+        sync-s3:
+          commands:
+            dir:
+              command: !Sub |
+                mkdir /var/jenkins_home
+            sync:
+              command: /usr/bin/s3-sync RESTORE && chmod -R 777 /var/jenkins_home
+        crontab:
+          commands:
+            tab: cat <(crontab -l) <(echo "0 0 0 1 0 /usr/bin/s3-sync BACKUP) | crontab -
+        tags:
+          command:
+            tag: /tmp/tags.sh
+    Properties:
+      IamInstanceProfile: !Ref JenkinsRoleProfile
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref JenkinsPorts
+          SubnetId: !Ref Subnet
+      InstanceType: !Ref InstanceType
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -v
+          env
+
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init \
+             --stack ${AWS::StackName} \
+             --resource JenkinsMasterEC2 \
+             --region ${AWS::Region} \
+             --configsets quickstart
+
+          $(aws ecr get-login --no-include-email --region us-east-1)
+
+          docker pull ${DockerImage}
+
+          docker run -d \
+              --name JenkinsMaster \
+              --restart always \
+              -p 8080:8080 \
+              -p 50000:50000 \
+              -v /var/jenkins_home:/var/jenkins_home \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              ${DockerImage}
+
+          # Signal results
+          /opt/aws/bin/cfn-signal -e $? \
+             --stack ${AWS::StackName} \
+             --resource JenkinsMasterEC2 \
+             --region ${AWS::Region} \
+             --reason "CFN config setup exited with value $?."
+
+  JenkinsCloudwatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+      RetentionInDays: 30
+
+  JenkinsDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId : Z123KCZIVJ9B18
+      Name:
+        Fn::Join:
+          - "."
+          - - !Ref AWS::StackName
+            - reptrak.io
+      ResourceRecords:
+        - !GetAtt JenkinsMasterEC2.PublicIp
+      TTL: '300'
+      Type: A
+
+Outputs:
+  JenkinsURL:
+    Description: Jenkins web URL
+    Value: !Sub 'http://${AWS::StackName}.reptrak.io:8080'
+
+  JenkinsInternalIP:
+    Description: Internal IP
+    Value: !GetAtt JenkinsMasterEC2.PrivateIp
+
+  JenkinsPublicIP:
+    Description: Internal IP
+    Value: !GetAtt JenkinsMasterEC2.PrivateIp

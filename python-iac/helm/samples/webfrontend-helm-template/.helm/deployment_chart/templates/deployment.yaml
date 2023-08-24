@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serviceName }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+    spec:
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          ports:
+            - containerPort: {{ .Values.container.port }}
+          volumeMounts:
+            - name: env
+              mountPath: /app/.env
+              subPath: .env
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.container.port }}
+            initialDelaySeconds: {{ .Values.container.liveness_delay }}
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.container.port }}
+            initialDelaySeconds: {{ .Values.container.readiness_delay }}
+            periodSeconds: 30
+      volumes:
+        - name: env
+          configMap:
+            name: {{ .Values.serviceName }}-env

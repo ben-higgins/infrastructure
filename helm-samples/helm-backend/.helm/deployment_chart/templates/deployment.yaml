@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serviceName }}
+  labels:
+    tags.datadoghq.com/env: {{ .Values.envType }}
+    tags.datadoghq.com/service: {{ .Values.serviceName }}
+    tags.datadoghq.com/version: v1
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.serviceName }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serviceName }}
+        tags.datadoghq.com/env: {{ .Values.envType }}
+        tags.datadoghq.com/service: {{ .Values.serviceName }}
+        tags.datadoghq.com/version: v1
+      annotations:
+        ad.datadoghq.com/platform-api.logs: >-
+          [{
+            "source": "python",
+            "service": "platform-api",
+            "log_processing_rules": [
+              {
+                "type": "exclude_at_match",
+                "name": "exclude_healthcheck",
+                "pattern" : ".*?\/healthcheck"
+              },
+              {
+                "type": "exclude_at_match",
+                "name": "exclude_swagger",
+                "pattern" : ".*?swagger\\.json"
+              }
+            ]
+          }]
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: {{ .Values.serviceName }}
+      containers:
+        - name: {{ .Values.serviceName }}
+          image: {{ .Values.container.image }}
+          resources:
+            requests:
+              memory: "500Mi"
+              cpu: "300m"
+          env:
+            {{ range $key, $value := .Values.envs }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{ end }}
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: DD_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/env']
+            - name: DD_SERVICE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/service']
+            - name: DD_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/version']
+            - name: DD_LOGS_INJECTION
+              value: "true"
+          ports:
+            - containerPort: {{ .Values.container.port }}
+          volumeMounts:
+            - name: env
+              mountPath: {{ .Values.volumeMount.path}}/.env
+              subPath: .env
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.container.port }}
+            initialDelaySeconds: {{ .Values.container.liveness_delay }}
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.container.port }}
+            initialDelaySeconds: {{ .Values.container.readiness_delay }}
+      volumes:
+        - name: env
+          configMap:
+            name: {{ .Values.serviceName }}-env

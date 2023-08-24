@@ -1,0 +1,116 @@
+#!/bin/bash
+
+# this script has a dependency on the following env variables
+# - STACK_NAME  - name of the composite stack
+# - Region - region composite stack was deployed to
+
+set -x
+
+STACK_NAME=$1
+
+# configure kubectl
+STACKNAME=$( ./bin/get-stack-name "${STACK_NAME}-Eks" ${Region}  )
+EKS_NAME=$( ./bin/get-key-value $STACKNAME ${Region} "EksClusterName" )
+
+aws eks --region ${Region} update-kubeconfig --name $EKS_NAME
+
+
+# tag subnets for alb-ingress-controller automation
+tag-subnets () {
+  subnet_list=$1
+  key=$2
+  value=$3
+  for i in $(echo $subnet_list | sed "s/,/ /g")
+  do
+    aws ec2 create-tags \
+    --region ${Region} \
+    --resources "$i" \
+    --tags "Key=$key,Value=$value"
+    echo "$i"
+  done
+}
+
+STACKNAME=$( ./bin/get-stack-name "${STACK_NAME}-VPC" ${Region}  )
+PUBLICSUBNETGROUP=$( ./bin/get-key-value $STACKNAME ${Region} "PublicSubnetGroup" )
+PRIVATESUBNETGROUP=$( ./bin/get-key-value $STACKNAME ${Region} "PrivateSubnetGroup" )
+
+tag-subnets "$PUBLICSUBNETGROUP" "kubernetes.io/cluster/$EKS_NAME" "shared"
+tag-subnets "$PRIVATESUBNETGROUP" "kubernetes.io/cluster/$EKS_NAME" "shared"
+tag-subnets "$PUBLICSUBNETGROUP" "kubernetes.io/role/elb" "1"
+tag-subnets "$PRIVATESUBNETGROUP" "kubernetes.io/role/internal-elb" "1"
+
+#check if user  has already been added to aws-auth configmap
+STACKNAME=$( ./bin/get-stack-name "${STACK_NAME}-Eks" ${Region}  )
+INSTANCEROLEARN=$( ./bin/get-key-value $STACKNAME ${Region} "EksNodeInstanceRole" )
+EKSUSER=$( ./bin/get-key-value $STACKNAME ${Region} "EKSUserName" )
+
+AWS_AUTH_CHECK=$( kubectl describe configmap aws-auth -n kube-system | grep $EKSUSER)
+USERARN=$( ./bin/get-key-value $STACKNAME ${Region} "EKSUserArn" )
+
+if [ "AWS_AUTH_CHECK" != "" ]; then
+
+cat > aws-auth.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: $INSTANCEROLEARN
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+  mapUsers: |
+    - userarn: $USERARN
+      username: $EKSUSER
+      groups:
+        - system:masters
+        - cluster-admin
+        - tiller
+EOF
+
+kubectl apply -f aws-auth.yaml
+
+else
+  echo "aws-auth has already been updated"
+fi
+
+#### setup k8s web console
+
+#deploy metrics server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.6/components.yaml
+
+#Deploy the Kubernetes dashboard
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
+
+# Create an eks-admin service account and cluster role binding
+
+cat > cluster-admin.yaml <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eks-admin
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: eks-admin
+  namespace: kube-system
+EOF
+
+kubectl apply -f cluster-admin.yaml
+
+
+
+

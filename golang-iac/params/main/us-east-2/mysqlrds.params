@@ -1,0 +1,7 @@
+MySQLEngine: mysql
+MySQLEngineVersion: 5.7.33
+MySQLEngineFamily: mysql5.7
+MySQLDBInstanceClass: db.t3.small
+MySQLDBAllocatedStorage: 20
+MySQLMultiAZ: false
+MySQLBackupRetentionPeriod: 30

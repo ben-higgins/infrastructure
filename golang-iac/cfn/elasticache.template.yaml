@@ -1,0 +1,86 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Elastic Kubernetes Template
+Parameters:
+  Name:
+    Type: String
+  CidrIp:
+    Type: String
+  SSHKey:
+    Type: AWS::EC2::KeyPair::KeyName
+  CacheNodeType:
+    Type: String
+    Default: cache.t2.micro
+  NumCacheNodes:
+    Type: Number
+    Default: 1
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetGroup:
+    Type: List<AWS::EC2::Subnet::Id>
+  NumberOfAZs:
+    Type: Number
+    AllowedValues: [ "2","3" ]
+
+Conditions:
+  Az2: !Not [ !Equals [ !Ref NumberOfAZs, 1 ] ]
+  Az3: !Equals [ !Ref NumberOfAZs, 3 ]
+
+
+Resources:
+  ElasticacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: !Sub ${AWS::StackName}-elasticache
+      Description: subnets for elasticache
+      SubnetIds:
+        - !Select [ 0, !Ref SubnetGroup ]
+        - !If [Az2, !Select [ 1, !Ref SubnetGroup ], !Ref AWS::NoValue]
+        - !If [Az3, !Select [ 2, !Ref SubnetGroup ], !Ref AWS::NoValue]
+
+  ElasticacheSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Elasticache Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '11211'
+          ToPort: '11211'
+          CidrIp: !Ref CidrIp
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: !Ref CidrIp
+          Description: 'mysql aurora access'
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/16
+          Description: 'vpn endpoint vpc cidr'
+      VpcId: !Ref VpcId
+
+  ElasticacheCluster:
+    Type: 'AWS::ElastiCache::CacheCluster'
+    DependsOn:
+      - ElasticacheSubnetGroup
+      - ElasticacheSecurityGroup
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-redis
+      AutoMinorVersionUpgrade: 'true'
+      Engine: redis
+      Port: 6379
+      CacheNodeType: !Ref CacheNodeType
+      NumCacheNodes: !Ref NumCacheNodes
+      CacheSubnetGroupName: !Ref ElasticacheSubnetGroup
+      VpcSecurityGroupIds:
+        - !GetAtt
+          - ElasticacheSecurityGroup
+          - GroupId
+
+
+Outputs:
+  RedisEndpoint:
+    Value: !GetAtt ElasticacheCluster.RedisEndpoint.Address
+  RedisEndpointPort:
+    Value: !GetAtt ElasticacheCluster.RedisEndpoint.Port
+

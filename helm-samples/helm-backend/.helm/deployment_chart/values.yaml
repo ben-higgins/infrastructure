@@ -1,0 +1,35 @@
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+serviceName: null
+envType: null
+
+replicaCount: 1
+
+alb:
+  scheme: internal
+
+container:
+  port: 8080
+  image: null
+  liveness_delay: 30
+  readiness_delay: 30
+
+service:
+  type: ClusterIP
+  port: 8080
+  protocol: TCP
+
+ssl:
+  certificateArn: null
+  policy: "ELBSecurityPolicy-2016-08"
+  backendProtocol: "HTTP"
+
+volumeMount:
+  path: /src
+
+envs:
+  USE_UVICORN: "false"
+  APM: true
+
+MongoDB: True

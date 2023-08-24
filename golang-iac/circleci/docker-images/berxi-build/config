@@ -1,0 +1,19 @@
+[profile dev]
+region = us-east-2
+role_arn = arn:aws:iam::597609335369:role/CrossAccountDevRole
+credential_source = Environment
+
+[profile test]
+region = us-east-2
+role_arn = arn:aws:iam::667813852149:role/CrossAccountDevOpsRole
+credential_source = Environment
+
+[profile staging]
+region = us-east-2
+role_arn = arn:aws:iam::667813852149:role/CrossAccountDevOpsRole
+credential_source = Environment
+
+[profile prod]
+region = us-east-2
+role_arn = arn:aws:iam::394007061642:role/CrossAccountDevOpsRole
+credential_source = Environment
